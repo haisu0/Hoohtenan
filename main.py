@@ -18,120 +18,120 @@ import re
 API_ID = 20958475
 API_HASH = '1cfb28ef51c138a027786e43a27a8225'
 
-# Daftar akun & log config
-# log_channel bisa diisi None jika tidak ingin pakai channel
-# log_admin wajib diisi agar tetap ada tujuan log
+# Daftar akun
 ACCOUNTS = [
     {
         "session": "1BVtsOGkBu5V_YTUPhTXX59prtbWe5cYpP8ZziirxC75bwPENqiApUmJBYzu2F5CeVkKyxPy_FJxbD17TumogyJ8R9fw7lEfHNgdjrWgOG2v5mAvhf_g0ijnmz3pWRhdFL6Qd3dB7qMvvrirnEH1aVt1NoGQrP60XBu3UDWHm9nvTtcdIW9io1Lwstou-Wzct33UGRU8HwJWZeZUfbu_Mmqon7zfp8_xxJ10ISMwZ-_YZaTd0eubywb9TTaveAFwAFdzz_JVyPjNzeXMzHfRruVE2yMTW9BMDD5fdvIFaBccVEuYTn5JSjBHDqKVJh6XMBND10kZF4flvYuBd28_eZ063rC9_jC0=",
-        "log_channel": -1003402358031,   # akun ini kirim ke channel + admin
+        "log_channel": -1003402358031,  # kirim ke channel + admin
         "log_admin": 1488611909
     },
     {
-        "session": "1BVtsOGkBu2ip64VAo2MvXJI_g-QkEaYJDaPN2vdLJ1DYy2XU2b-g2s6E_8589ISE61oRvN_sHi_eCRqH4McgMdvkvwJin6XvF1lTQNOHRvnOEcJxiuXZO92nnZmSeo1ntevPs8DPbvqjQ7tRH7mLNpdmGdAzKMtUqjmF0H0S0VGZKImS8k_wvdv2ZwJIUM5kxWDExRX_W__t6rTxNPJ_Umv45-w3DeqwlSpXGhuiLC6MqWwJ03f6YLAhO6hk6UuuLMY7xBd1NEtAsCnXwJ03f6YLAhO6hk6UuuLMY7xBd1NEtAsCnXwzJFhAXeO6k_qaffZO5zToPPLdGKSOsZKnZosn3YWMUXzMcFhPmaWIIuMDMJkhPV1lQMkF4LUUxpX90=",
-        "log_channel": -1003402358031,             # akun ini hanya kirim ke admin
+        "session": "1BVtsOGkBu2ip64VAo2MvXJI_g-QkEaYJDaPN2vdLJ1DYy2XU2b-g2s6E_8589ISE61oRvN_sHi_eCRqH4McgMdvkvwJin6XvF1lTQNOHRvnOEcJxiuXZO92nnZmSeo1ntevPs8DPbvqjQ7tRH7mLNpdmGdAzKMtUqjmF0H0S0VGZKImS8k_wvdv2ZwJIUM5kxWDExRX_W__t6rTxNPJ_Umv45-w3DeqwlSpXGhuiLC6MqWwJ03f6YLAhO6hk6UuuLMY7xBd1NEtAsCnXwzJFhAXeO6k_qaffZO5zToPPLdGKSOsZKnZosn3YWMUXzMcFhPmaWIIuMDMJkhPV1lQMkF4LUUxpX90=",
+        "log_channel": None,            # akun ini hanya kirim ke admin
         "log_admin": 7828063345
     }
 ]
 
-# Buat list client dari semua akun
+# Buat client list
 clients = []
 for acc in ACCOUNTS:
     client = TelegramClient(StringSession(acc["session"]), API_ID, API_HASH)
-    # gunakan acc.get agar aman kalau log_channel tidak ada
     clients.append((client, acc.get("log_channel"), acc.get("log_admin")))
 
-# === ANTI VIEW-ONCE & MEDIA TIMER ===
-# Fungsi ini menangkap media view-once / timer sebelum hilang
+# === ANTI VIEW-ONCE ===
 async def anti_view_once_and_ttl(event, client, log_channel, log_admin):
-    if not event.is_private:  # hanya jalan di chat private
+    if not event.is_private:
         return
-      
+
     msg = event.message
     ttl = getattr(msg.media, "ttl_seconds", None)
-    if not msg.media or not ttl:  # skip kalau bukan media dengan timer
+    if not msg.media or not ttl:
         return
 
     try:
-        # Ambil info pengirim
-        try:
-            sender = await msg.get_sender()
-            sender_id = sender.id if sender else "Unknown"
-            sender_name = sender.first_name or "Unknown"
-            sender_username = f"@{sender.username}" if sender and sender.username else "-"
-        except:
-            sender_id = "Unknown"
-            sender_name = "Unknown"
-            sender_username = "-"
+        # Info pengirim
+        sender = await msg.get_sender()
+        sender_name = sender.first_name or "Unknown"
+        sender_username = f"@{sender.username}" if sender.username else "-"
+        sender_id = sender.id
 
-        # Ambil info chat
-        try:
-            chat = await event.get_chat()
-            chat_title = getattr(chat, "title", "Private Chat")
-            chat_id = chat.id
-        except:
-            chat_title = "Unknown Chat"
-            chat_id = "Unknown"
+        # Info chat
+        chat = await event.get_chat()
+        chat_title = getattr(chat, "title", "Private Chat")
+        chat_id = chat.id
 
-        # Buat caption log
         caption = (
-            "🔓 **MEDIA VIEW-ONCE / TIMER TERTANGKAP**\n\n"
-            f"👤 **Pengirim:** `{sender_name}`\n"
-            f"🔗 **Username:** {sender_username}\n"
-            f"🆔 **User ID:** `{sender_id}`\n\n"
-            f"💬 **Dari Chat:** `{chat_title}`\n"
-            f"🆔 **Chat ID:** `{chat_id}`\n\n"
-            f"⏱ **Timer:** `{ttl} detik`\n"
-            f"📥 **Status:** Berhasil disalin sebelum hilang ✅"
+            "🔓 **MEDIA VIEW-ONCE TERTANGKAP**\n\n"
+            f"👤 Pengirim: `{sender_name}`\n"
+            f"🔗 Username: {sender_username}\n"
+            f"🆔 User ID: `{sender_id}`\n\n"
+            f"💬 Dari Chat: `{chat_title}`\n"
+            f"🆔 Chat ID: `{chat_id}`\n\n"
+            f"⏱ Timer: `{ttl} detik`\n"
+            f"✅ Berhasil disalin"
         )
 
-        # Simpan file sementara
-        folder_path = "111Anti View Once"
-        os.makedirs(folder_path, exist_ok=True)
-        file = await msg.download_media(file=folder_path)
+        folder = "111AntiViewOnce"
+        os.makedirs(folder, exist_ok=True)
+        file = await msg.download_media(file=folder)
 
-        # Kirim log ke channel jika ada
         if log_channel:
             await client.send_file(log_channel, file, caption=caption)
-
-        # Kirim log ke admin jika ada
         if log_admin:
             await client.send_file(log_admin, file, caption=caption)
 
-        # Hapus file lokal setelah dikirim
-        try:
-            if file and os.path.exists(file):
-                os.remove(file)
-        except:
-            pass
+        if file and os.path.exists(file):
+            os.remove(file)
 
     except Exception as e:
-        # Kalau error, kirim pesan error ke channel/admin sesuai yang ada
-        try:
-            if log_channel:
-                await client.send_message(log_channel, f"⚠ Error anti-viewonce: `{e}`")
-            if log_admin:
-                await client.send_message(log_admin, f"⚠ Error anti-viewonce: `{e}`")
-        except:
-            pass
+        if log_admin:
+            await client.send_message(log_admin, f"⚠ Error anti-viewonce: `{e}`")
 
-# Attach handler ke semua client
-# Setiap akun akan menjalankan fungsi anti_view_once_and_ttl
+# Attach handler anti view-once
 for client, log_channel, log_admin in clients:
     @client.on(events.NewMessage(incoming=True))
     async def handler(event, c=client, lc=log_channel, la=log_admin):
         await anti_view_once_and_ttl(event, c, lc, la)
 
+# === /PING LENGKAP (ping + alive + status) ===
+start_time_global = datetime.now()
+
+for client, log_channel, log_admin in clients:
+    @client.on(events.NewMessage(pattern=r"^/ping$"))
+    async def ping(event, c=client):
+        try:
+            start = datetime.now()
+            msg = await event.reply("Pinging...")
+            end = datetime.now()
+            ms = (end - start).microseconds // 1000
+
+            uptime = datetime.now() - start_time_global
+            uptime_str = str(uptime).split('.')[0]
+
+            me = await c.get_me()
+            akun_nama = me.first_name or "Akun"
+
+            text = (
+                f"🏓 **Pong!** `{ms}ms`\n\n"
+                f"👤 **Akun:** {akun_nama}\n"
+                f"⏱ **Uptime:** `{uptime_str}`\n"
+                f"📡 **Status:** Online\n"
+                f"🕒 **Server:** {datetime.now().strftime('%H:%M:%S')}"
+            )
+
+            await msg.edit(text)
+        except Exception as e:
+            await event.reply(f"⚠ Error /ping: `{e}`")
+
 # === HEARTBEAT LENGKAP ===
-async def heartbeat(client, log_admin, log_channel, akun_nama="Akun"):
+async def heartbeat(client, log_admin, log_channel, akun_nama):
     last_msg_id = None
     start_time = datetime.now()
 
     while True:
         try:
-            # Hitung uptime
             uptime = datetime.now() - start_time
-            uptime_str = str(uptime).split('.')[0]  # buang microseconds
+            uptime_str = str(uptime).split('.')[0]
 
             # Hapus heartbeat sebelumnya
             if last_msg_id:
@@ -143,49 +143,37 @@ async def heartbeat(client, log_admin, log_channel, akun_nama="Akun"):
                 except:
                     pass
 
-            # Buat pesan heartbeat baru
             text = (
-                f"✅ **Heartbeat Ubot Aktif**\n"
-                f"👤 **{akun_nama}**\n"
-                f"⏱ **Uptime:** `{uptime_str}`\n"
-                f"📡 **Status:** Online & Stabil\n"
-                f"🕒 **Waktu:** {datetime.now().strftime('%H:%M:%S')}"
+                f"✅ **Heartbeat Aktif**\n"
+                f"👤 {akun_nama}\n"
+                f"⏱ Uptime: `{uptime_str}`\n"
+                f"🕒 {datetime.now().strftime('%H:%M:%S')}"
             )
 
-            # Kirim ke channel atau admin
-            target_msg = None
+            msg = None
             if log_channel:
-                target_msg = await client.send_message(log_channel, text)
+                msg = await client.send_message(log_channel, text)
             if log_admin:
-                # kalau mau kirim ke dua-duanya, log_admin juga dikirimi
-                target_msg = await client.send_message(log_admin, text)
+                msg = await client.send_message(log_admin, text)
 
-            # Simpan ID pesan terakhir (pakai yang terakhir dikirim)
-            if target_msg:
-                last_msg_id = target_msg.id
+            if msg:
+                last_msg_id = msg.id
 
         except Exception as e:
-            # Kirim error alert
-            err_text = f"⚠️ **Heartbeat Error:** `{e}`"
-            try:
-                if log_channel:
-                    await client.send_message(log_channel, err_text)
-                if log_admin:
-                    await client.send_message(log_admin, err_text)
-            except:
-                pass
+            err = f"⚠ Heartbeat Error: `{e}`"
+            if log_admin:
+                await client.send_message(log_admin, err)
 
-        # Kirim heartbeat setiap 5 menit
+        # kirim heartbeat tiap 5 menit
         await asyncio.sleep(300)
 
-# === REPLIT UPTIME ===
-# Bagian ini untuk menjaga bot tetap hidup di Replit
+# === RAILWAY WEB SERVER ===
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "Ubot aktif!", 200
-    
+    return "Ubot aktif di Railway!", 200
+
 def run():
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
@@ -193,21 +181,44 @@ def run():
 def keep_alive():
     Thread(target=run).start()
 
-# === JALANKAN ===
+# === AUTO RESTART LOOP ===
+async def run_clients_forever():
+    while True:
+        tasks = []
+        for client, _, _ in clients:
+            tasks.append(asyncio.create_task(client.run_until_disconnected()))
+
+        await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        print("⚠ Client disconnect, restart 5 detik...")
+        await asyncio.sleep(5)
+
+# === MAIN ===
 async def main():
-    keep_alive()  # aktifkan server uptime
+    keep_alive()
+
     # start semua akun
     for client, _, _ in clients:
         await client.start()
 
-    # jalankan heartbeat untuk setiap akun (multi-akun)
+    # notif Railway restart ke admin + channel
     for index, (client, log_channel, log_admin) in enumerate(clients, start=1):
         akun_nama = f"Akun {index}"
-        asyncio.create_task(heartbeat(client, log_admin, log_channel, akun_nama))
+        text = (
+            f"♻️ **Ubot Restart (Railway)**\n"
+            f"👤 {akun_nama}\n"
+            f"🕒 Waktu: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+        if log_channel:
+            await client.send_message(log_channel, text)
+        if log_admin:
+            await client.send_message(log_admin, text)
 
-    print(f"Ubot aktif dengan {len(clients)} akun.")
-    # jalankan semua client sampai disconnect
-    await asyncio.gather(*(c.run_until_disconnected() for c, _, _ in clients))
+    # jalankan heartbeat tiap akun
+    for index, (client, log_channel, log_admin) in enumerate(clients, start=1):
+        asyncio.create_task(heartbeat(client, log_admin, log_channel, f"Akun {index}"))
 
-# Eksekusi utama
+    print(f"✅ Ubot aktif dengan {len(clients)} akun.")
+
+    await run_clients_forever()
+
 asyncio.run(main())
