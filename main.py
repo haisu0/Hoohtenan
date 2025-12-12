@@ -140,6 +140,8 @@ start_time_global = datetime.now()
 for client, log_channel, log_admin in clients:
     @client.on(events.NewMessage(pattern=r"^/ping$"))
     async def ping(event, c=client):
+        if not event.is_private:   # ✅ Tambahan filter hanya di handler ping
+            return
         try:
             start = datetime.now()
             msg = await event.reply("Pinging...")
