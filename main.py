@@ -13,6 +13,9 @@ from telethon.errors import (
 from flask import Flask
 from threading import Thread
 import re
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 
 # === KONFIGURASI ===
 API_ID = 20958475
@@ -116,7 +119,7 @@ for client, log_channel, log_admin in clients:
                 f"👤 **Akun:** {akun_nama}\n"
                 f"⏱ **Uptime:** `{uptime_str}`\n"
                 f"📡 **Status:** Online\n"
-                f"🕒 **Server:** {datetime.now().strftime('%H:%M:%S')}"
+                f"🕒 **Server:** {datetime.now(ZoneInfo('Asia/Jakarta')).strftime('%H:%M:%S')}"
             )
 
             await msg.edit(text)
@@ -145,7 +148,7 @@ async def heartbeat(client, log_admin, log_channel, akun_nama):
                 f"✅ **Heartbeat Aktif**\n"
                 f"👤 {akun_nama}\n"
                 f"⏱ Uptime: `{uptime_str}`\n"
-                f"🕒 {datetime.now().strftime('%H:%M:%S')}"
+                f"🕒 {datetime.now(ZoneInfo('Asia/Jakarta')).strftime('%H:%M:%S')}"
             )
 
             msg = None
@@ -202,7 +205,7 @@ async def main():
         text = (
             f"♻️ **Ubot Restart (Railway)**\n"
             f"👤 {akun_nama}\n"
-            f"🕒 Waktu: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            f"🕒 Waktu: {datetime.now(ZoneInfo('Asia/Jakarta')).strftime('%H:%M:%S || %Y-%m-%d')}"
         )
         if log_admin:
             await client.send_message(log_admin, text)
