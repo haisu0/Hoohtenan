@@ -19,15 +19,17 @@ API_ID = 20958475
 API_HASH = '1cfb28ef51c138a027786e43a27a8225'
 
 # Daftar akun & log config
+# log_channel bisa diisi None jika tidak ingin pakai channel
+# log_admin wajib diisi agar tetap ada tujuan log
 ACCOUNTS = [
     {
         "session": "1BVtsOGkBu5V_YTUPhTXX59prtbWe5cYpP8ZziirxC75bwPENqiApUmJBYzu2F5CeVkKyxPy_FJxbD17TumogyJ8R9fw7lEfHNgdjrWgOG2v5mAvhf_g0ijnmz3pWRhdFL6Qd3dB7qMvvrirnEH1aVt1NoGQrP60XBu3UDWHm9nvTtcdIW9io1Lwstou-Wzct33UGRU8HwJWZeZUfbu_Mmqon7zfp8_xxJ10ISMwZ-_YZaTd0eubywb9TTaveAFwAFdzz_JVyPjNzeXMzHfRruVE2yMTW9BMDD5fdvIFaBccVEuYTn5JSjBHDqKVJh6XMBND10kZF4flvYuBd28_eZ063rC9_jC0=",
-        "log_channel": -1003402358031,
+        "log_channel": -1003402358031,   # akun ini kirim ke channel + admin
         "log_admin": 1488611909
     },
     {
-        "session": "1BVtsOGkBu2ip64VAo2MvXJI_g-QkEaYJDaPN2vdLJ1DYy2XU2b-g2s6E_8589ISE61oRvN_sHi_eCRqH4McgMdvkvwJin6XvF1lTQNOHRvnOEcJxiuXZO92nnZmSeo1ntevPs8DPbvqjQ7tRH7mLNpdmGdAzKMtUqjmF0H0S0VGZKImS8k_wvdv2ZwJIUM5kxWDExRX_W__t6rTxNPJ_Umv45-w3DeqwlSpXGhuiLC6MqWwJ03f6YLAhO6hk6UuuLMY7xBd1NEtAsCnXwzJFhAXeO6k_qaffZO5zToPPLdGKSOsZKnZosn3YWMUXzMcFhPmaWIIuMDMJkhPV1lQMkF4LUUxpX90=",
-        "log_channel": None,
+        "session": "1BVtsOGkBu2ip64VAo2MvXJI_g-QkEaYJDaPN2vdLJ1DYy2XU2b-g2s6E_8589ISE61oRvN_sHi_eCRqH4McgMdvkvwJin6XvF1lTQNOHRvnOEcJxiuXZO92nnZmSeo1ntevPs8DPbvqjQ7tRH7mLNpdmGdAzKMtUqjmF0H0S0VGZKImS8k_wvdv2ZwJIUM5kxWDExRX_W__t6rTxNPJ_Umv45-w3DeqwlSpXGhuiLC6MqWwJ03f6YLAhO6hk6UuuLMY7xBd1NEtAsCnXwJ03f6YLAhO6hk6UuuLMY7xBd1NEtAsCnXwzJFhAXeO6k_qaffZO5zToPPLdGKSOsZKnZosn3YWMUXzMcFhPmaWIIuMDMJkhPV1lQMkF4LUUxpX90=",
+        "log_channel": -1003402358031,             # akun ini hanya kirim ke admin
         "log_admin": 7828063345
     }
 ]
@@ -36,30 +38,11 @@ ACCOUNTS = [
 clients = []
 for acc in ACCOUNTS:
     client = TelegramClient(StringSession(acc["session"]), API_ID, API_HASH)
+    # gunakan acc.get agar aman kalau log_channel tidak ada
     clients.append((client, acc.get("log_channel"), acc.get("log_admin")))
 
-# === FITUR FORWARD PESAN BERDASARKAN KATA KUNCI ===
-# Daftar kata kunci yang akan memicu forward
-TRIGGER_WORDS = ["asu"]
-
-# Attach handler ke semua client untuk fitur forward
-for client, _, _ in clients:
-    @client.on(events.NewMessage(incoming=True))
-    async def keyword_forward(event, c=client):
-        text = event.raw_text.lower().strip()
-
-        # Jika pesan persis sama dengan kata kunci
-        if text in TRIGGER_WORDS:
-            for _ in range(10):
-                await c.forward_messages(event.sender_id, event.message)
-
-        # Jika pesan mengandung kata kunci
-        elif any(word in text for word in TRIGGER_WORDS):
-            for _ in range(10):
-                await c.forward_messages(event.sender_id, event.message)
-
-
 # === ANTI VIEW-ONCE & MEDIA TIMER ===
+# Fungsi ini menangkap media view-once / timer sebelum hilang
 async def anti_view_once_and_ttl(event, client, log_channel, log_admin):
     if not event.is_private:  # hanya jalan di chat private
         return
@@ -123,6 +106,7 @@ async def anti_view_once_and_ttl(event, client, log_channel, log_admin):
             pass
 
     except Exception as e:
+        # Kalau error, kirim pesan error ke channel/admin sesuai yang ada
         try:
             if log_channel:
                 await client.send_message(log_channel, f"⚠ Error anti-viewonce: `{e}`")
@@ -131,19 +115,77 @@ async def anti_view_once_and_ttl(event, client, log_channel, log_admin):
         except:
             pass
 
-# Attach handler ke semua client untuk anti view-once
+# Attach handler ke semua client
+# Setiap akun akan menjalankan fungsi anti_view_once_and_ttl
 for client, log_channel, log_admin in clients:
     @client.on(events.NewMessage(incoming=True))
     async def handler(event, c=client, lc=log_channel, la=log_admin):
         await anti_view_once_and_ttl(event, c, lc, la)
 
+# === HEARTBEAT LENGKAP ===
+async def heartbeat(client, log_admin, log_channel, akun_nama="Akun"):
+    last_msg_id = None
+    start_time = datetime.now()
+
+    while True:
+        try:
+            # Hitung uptime
+            uptime = datetime.now() - start_time
+            uptime_str = str(uptime).split('.')[0]  # buang microseconds
+
+            # Hapus heartbeat sebelumnya
+            if last_msg_id:
+                try:
+                    if log_channel:
+                        await client.delete_messages(log_channel, last_msg_id)
+                    if log_admin:
+                        await client.delete_messages(log_admin, last_msg_id)
+                except:
+                    pass
+
+            # Buat pesan heartbeat baru
+            text = (
+                f"✅ **Heartbeat Ubot Aktif**\n"
+                f"👤 **{akun_nama}**\n"
+                f"⏱ **Uptime:** `{uptime_str}`\n"
+                f"📡 **Status:** Online & Stabil\n"
+                f"🕒 **Waktu:** {datetime.now().strftime('%H:%M:%S')}"
+            )
+
+            # Kirim ke channel atau admin
+            target_msg = None
+            if log_channel:
+                target_msg = await client.send_message(log_channel, text)
+            if log_admin:
+                # kalau mau kirim ke dua-duanya, log_admin juga dikirimi
+                target_msg = await client.send_message(log_admin, text)
+
+            # Simpan ID pesan terakhir (pakai yang terakhir dikirim)
+            if target_msg:
+                last_msg_id = target_msg.id
+
+        except Exception as e:
+            # Kirim error alert
+            err_text = f"⚠️ **Heartbeat Error:** `{e}`"
+            try:
+                if log_channel:
+                    await client.send_message(log_channel, err_text)
+                if log_admin:
+                    await client.send_message(log_admin, err_text)
+            except:
+                pass
+
+        # Kirim heartbeat setiap 5 menit
+        await asyncio.sleep(300)
+
 # === REPLIT UPTIME ===
+# Bagian ini untuk menjaga bot tetap hidup di Replit
 app = Flask('')
 
 @app.route('/')
 def home():
     return "Ubot aktif!", 200
-
+    
 def run():
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
@@ -153,10 +195,18 @@ def keep_alive():
 
 # === JALANKAN ===
 async def main():
-    keep_alive()
+    keep_alive()  # aktifkan server uptime
+    # start semua akun
     for client, _, _ in clients:
         await client.start()
+
+    # jalankan heartbeat untuk setiap akun (multi-akun)
+    for index, (client, log_channel, log_admin) in enumerate(clients, start=1):
+        akun_nama = f"Akun {index}"
+        asyncio.create_task(heartbeat(client, log_admin, log_channel, akun_nama))
+
     print(f"Ubot aktif dengan {len(clients)} akun.")
+    # jalankan semua client sampai disconnect
     await asyncio.gather(*(c.run_until_disconnected() for c, _, _ in clients))
 
 # Eksekusi utama
