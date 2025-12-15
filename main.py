@@ -446,6 +446,9 @@ async def whois_handler(event, client):
     except Exception as e:
         bio = f"⚠ Tidak bisa ambil bio: {e}"
 
+    phone = getattr(user, "phone", None)
+    phone = f"+{phone}" if phone and not phone.startswith("+") else (phone or "-")
+
     text = (
         f"👤 **WHOIS USER**\n\n"
         f"🆔 ID: `{user.id}`\n"
@@ -454,7 +457,7 @@ async def whois_handler(event, client):
         f"📖 Bio: {bio}\n"
         f"⭐ Premium: {'Ya' if getattr(user, 'premium', False) else 'Tidak'}\n"
         f"🤖 Bot: {'Ya' if user.bot else 'Tidak'}\n"
-        f"☎️ Nomor: {getattr(user, 'phone', '-')}\n"
+        f"☎️ Nomor: {phone}\n"
     )
     
     try:
