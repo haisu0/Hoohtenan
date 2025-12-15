@@ -1,4 +1,6 @@
 telethon
 flask
 requests
+httpx
 beautifulsoup4
+yt-dlp
