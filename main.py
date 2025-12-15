@@ -15,7 +15,7 @@ API_HASH = '1cfb28ef51c138a027786e43a27a8225'
 # Daftar akun dengan fitur masing-masing
 ACCOUNTS = [
     {
-        "session": "1BVtsOGkBu5V_YTUPhTXX59prtbWe5cYpP8ZziirxC75bwPENqiApUmJBYzu2F5CeVkKyxPy_FJxbD17TumogyJ8R9fw7lEfHNgdjrWgOG2v5mAvhf_g0ijnmz3pWRhdFL6Qd3dB7qMvvrirnEH1aVt1NoGQrP60XBu3UDWHm9nvTtcdIW9io1Lwstou-Wzct33UGRU8HwJWZeZUfbu_Mmqon7zfp8_xxJ10ISMwZ-_YZaTd0eubywb9TTaveAFwAFdzz_JVyPjNzeXMzHfRruVE2yMTW9BMDD5fdvIFaBccVEuYTn5JSjBHDqKVJh6XMBND10kZF4flvYuBd28_eZ063rC9_jC0=",
+        "session": "1BVtsOIIBu4Z0S11NsMdWP8Ua-p8C4gFEBAyD0TGmshXRvGQNBYavPrKNFgcEXWz-sDT_w9HLML-9nMrSWTqAAfqvx4Y6157p30Gqy09ViCrgzKyfo7IEdhK7Tqnjlt5lSYwuhfalN4R4GtgjBoY7FQBH7EIYozqwxFp8U93PYdsqWKQdG_bhBqZ2I02dqOqOqc_feGpBFrTwLPLld_tPjIuvBk02zgUGV3E3vYdmdGx8gPFveGbSLLHJdHoFH-E-K_paygXWXVjFopilIAKl9fuw36Wjrd-ijV0OpRIfEEff3sH8jFoGQfdthUaZiLlcr4V373-eeh-LOAc8W-CxBhKDfDne0P0=",
         "log_channel": -1003402358031,
         "log_admin": 1488611909,
         "features": [
@@ -211,6 +211,13 @@ link_regex = re.compile(
 )
 
 async def process_link(event, client, chat_part, msg_id, target_chat=None):
+    if not event.is_private:
+        return
+    
+    me = await client.get_me()
+    if event.sender_id != me.id:
+        return
+    
     from telethon.errors import (
         RPCError,
         ChannelPrivateError,
@@ -306,6 +313,13 @@ async def process_link(event, client, chat_part, msg_id, target_chat=None):
 
 
 async def handle_save_command(event, client):
+    if not event.is_private:
+        return
+    
+    me = await client.get_me()
+    if event.sender_id != me.id:
+        return
+        
     input_text = event.pattern_match.group(2).strip()
 
     if not input_text:
