@@ -250,6 +250,15 @@ async def process_link(event, client, chat_part, msg_id, target_chat=None):
 
         send_to = target_chat or event.chat_id
 
+        # === PATCH: cek kalau media adalah sticker ===
+        if message.media and message.sticker:
+            await client.send_file(
+                send_to,
+                message.media,
+                force_document=False  # penting agar tetap sticker (termasuk .tgs animasi)
+            )
+            return  # selesai, jangan lanjut ke grouped_id
+
         grouped_id = message.grouped_id
         if grouped_id:
             all_msgs = await client.get_messages(chat_id, limit=200)
