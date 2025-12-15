@@ -476,12 +476,33 @@ async def whois_handler(event, client):
         f"⭐ Premium: {'Ya' if getattr(user, 'premium', False) else 'Tidak'}\n"
         f"🤖 Bot: {'Ya' if user.bot else 'Tidak'}\n"
     )
+    
     try:
-        photo = await client.download_profile_photo(user.id)
-        await client.send_file(event.chat_id, photo, caption=text)
-        os.remove(photo)
-    except:
-        await event.reply(text)
+        # Ambil semua foto/video profil user
+        photos = await client.get_profile_photos(user.id, limit=10)  # batasi 10 biar aman
+        files = []
+        for p in photos:
+            fpath = await client.download_media(p)
+            files.append(fpath)
+
+        if files:
+            # Kirim sebagai media group (album)
+            await client.send_file(
+                event.chat_id,
+                files,
+                caption=text,
+                link_preview=False
+            )
+            # Hapus file lokal
+            for f in files:
+                try:
+                    os.remove(f)
+                except:
+                    pass
+        else:
+            await event.reply(text)
+    except Exception as e:
+        await event.reply(f"{text}\n\n⚠ Error ambil foto profil: {e}")
 
 
 # === FITUR: AUTO-PIN (KHUSUS PRIVATE) ===
