@@ -426,10 +426,6 @@ async def handle_save_command(event, client):
 
 # === FITUR: CLEAR CHANNEL (KHUSUS CHANNEL) ===
 async def clearch_handler(event, client):
-    me = await client.get_me()
-    if event.sender_id != me.id:
-        return
-      
     chat = await event.get_chat()
 
     if not getattr(chat, "broadcast", False):
