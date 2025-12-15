@@ -461,12 +461,18 @@ async def whois_handler(event, client):
     reply = await event.get_reply_message()
     user = await client.get_entity(reply.sender_id)
 
+    try:
+        full = await client(GetFullUserRequest(user.id))
+        bio = full.full_user.about or "-"
+    except Exception as e:
+        bio = f"⚠ Tidak bisa ambil bio: {e}"
+
     text = (
         f"👤 **WHOIS USER**\n\n"
         f"🆔 ID: `{user.id}`\n"
         f"👥 Nama: {user.first_name or '-'} {user.last_name or ''}\n"
         f"🔗 Username: @{user.username if user.username else '-'}\n"
-        f"📖 Bio: {user.about}\n"
+        f"📖 Bio: {bio}\n"
         f"⭐ Premium: {'Ya' if getattr(user, 'premium', False) else 'Tidak'}\n"
         f"🤖 Bot: {'Ya' if user.bot else 'Tidak'}\n"
     )
