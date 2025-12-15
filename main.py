@@ -527,10 +527,6 @@ def sanitize_url(url):
 PLATFORM_PATTERNS = {
     'tiktok': re.compile(r'(?:^|\.)tiktok\.com', re.IGNORECASE),
     'instagram': re.compile(r'(?:^|\.)instagram\.com|instagr\.am', re.IGNORECASE),
-    'facebook': re.compile(r'(?:^|\.)facebook\.com|fb\.watch', re.IGNORECASE),
-    'pinterest': re.compile(r'(?:^|\.)pinterest\.com|pin\.it', re.IGNORECASE),
-    'spotify': re.compile(r'(?:^|\.)spotify\.com', re.IGNORECASE),
-    'threads': re.compile(r'(?:^|\.)threads\.(net|com)', re.IGNORECASE),
 }
 
 def detect_platform(url):
@@ -677,215 +673,6 @@ async def download_instagram(url, quality='best'):
     except Exception as e:
         return {'success': False, 'message': f'Error Instagram: {str(e)}'}
 
-async def download_facebook(url, quality='best'):
-    """Handler untuk download Facebook"""
-    try:
-        headers = {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'hx-current-url': 'https://getmyfb.com/',
-            'hx-request': 'true',
-        }
-        
-        data = {
-            'id': unquote(url),
-            'locale': 'en'
-        }
-        
-        response = requests.post('https://getmyfb.com/process', headers=headers, data=data, timeout=15)
-        response.raise_for_status()
-        
-        html = response.text
-        soup = BeautifulSoup(html, 'html.parser')
-        
-        video_links = []
-        for link in soup.find_all('a', href=True):
-            href = link['href']
-            if href.startswith('http') and 'facebook' in href.lower():
-                text = link.get_text(strip=True)
-                quality_text = 'HD' if 'hd' in text.lower() else 'SD'
-                video_links.append({
-                    'quality': quality_text,
-                    'url': href
-                })
-        
-        if not video_links:
-            return {'success': False, 'message': 'Tidak dapat menemukan video'}
-        
-        result = {
-            'success': True,
-            'platform': 'Facebook',
-            'type': 'video',
-            'videos': video_links
-        }
-        
-        return result
-        
-    except Exception as e:
-        return {'success': False, 'message': f'Error Facebook: {str(e)}'}
-
-async def download_pinterest(url, quality='best'):
-    """Handler untuk download Pinterest dengan API yang lebih reliable"""
-    try:
-        # Using snapsave.app API which is more stable
-        headers = {
-            'Accept': 'application/json, text/plain, */*',
-            'Content-Type': 'application/json',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Origin': 'https://snapsave.app',
-            'Referer': 'https://snapsave.app/'
-        }
-        
-        payload = {'url': url}
-        
-        response = requests.post(
-            'https://snapsave.app/api/ajaxSearch',
-            json=payload,
-            headers=headers,
-            timeout=15
-        )
-        response.raise_for_status()
-        
-        data = response.json()
-        
-        if data.get('status') != 'ok':
-            return {'success': False, 'message': 'Gagal mengambil data Pinterest'}
-        
-        html = data.get('data', '')
-        soup = BeautifulSoup(html, 'html.parser')
-        
-        videos = []
-        images = []
-        
-        for link in soup.find_all('a', href=True):
-            href = link['href']
-            if any(ext in href.lower() for ext in ['.mp4', '.m3u8']):
-                videos.append(href)
-            elif any(ext in href.lower() for ext in ['.jpg', '.png', '.jpeg']):
-                images.append(href)
-        
-        media_type = 'video' if videos else 'images' if images else 'unknown'
-        media_url = videos[0] if videos else images[0] if images else None
-        
-        if not media_url:
-            return {'success': False, 'message': 'Tidak dapat menemukan konten'}
-        
-        result = {
-            'success': True,
-            'platform': 'Pinterest',
-            'type': media_type,
-            'url': media_url,
-            'all_media': videos if videos else images
-        }
-        
-        return result
-        
-    except Exception as e:
-        return {'success': False, 'message': f'Error Pinterest: {str(e)}'}
-
-async def download_spotify(url):
-    """Handler untuk download Spotify dengan API yang lebih reliable"""
-    try:
-        # Using spotify-downloader API
-        headers = {
-            'Accept': 'application/json',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        }
-        
-        # Extract track ID from URL
-        track_id = url.split('/')[-1].split('?')[0]
-        
-        # Try multiple API endpoints
-        api_urls = [
-            f'https://api.spotifydown.com/download/{track_id}',
-            f'https://api.fabdl.com/spotify/get?url={requests.utils.quote(url)}',
-        ]
-        
-        for api_url in api_urls:
-            try:
-                response = requests.get(api_url, headers=headers, timeout=15)
-                if response.status_code == 200:
-                    data = response.json()
-                    
-                    # Handle different API response formats
-                    download_url = None
-                    if 'link' in data:
-                        download_url = data['link']
-                    elif 'result' in data and 'download_url' in data['result']:
-                        download_url = data['result']['download_url']
-                    
-                    if download_url:
-                        result = {
-                            'success': True,
-                            'platform': 'Spotify',
-                            'type': 'audio',
-                            'url': download_url,
-                            'metadata': {
-                                'title': data.get('title', ''),
-                                'artist': data.get('artist', ''),
-                            }
-                        }
-                        return result
-            except:
-                continue
-        
-        return {'success': False, 'message': 'Spotify API tidak tersedia, coba lagi nanti'}
-        
-    except Exception as e:
-        return {'success': False, 'message': f'Error Spotify: {str(e)}'}
-
-async def download_threads(url, quality='best'):
-    """Handler untuk download Threads"""
-    try:
-        cookie_res = requests.get('https://threadster.app/', timeout=10)
-        cookies = cookie_res.cookies
-        
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36',
-            'Content-Type': 'application/x-www-form-urlencoded'
-        }
-        
-        data = {'url': url}
-        
-        response = requests.post('https://threadster.app/download', 
-                               headers=headers, data=data, cookies=cookies, timeout=15)
-        response.raise_for_status()
-        
-        html = response.text
-        soup = BeautifulSoup(html, 'html.parser')
-        
-        videos = []
-        images = []
-        
-        for row in soup.find_all('tr'):
-            cells = row.find_all('td')
-            if len(cells) >= 2:
-                link = cells[1].find('a')
-                if link and link.get('href'):
-                    href = link['href']
-                    if '/threadster/video?' in href:
-                        videos.append(href)
-                    elif '/threadster/image?' in href:
-                        images.append(href)
-        
-        media_type = 'video' if videos else 'images' if images else 'unknown'
-        media_list = videos if videos else images
-        
-        if not media_list:
-            return {'success': False, 'message': 'Tidak dapat menemukan konten'}
-        
-        result = {
-            'success': True,
-            'platform': 'Threads',
-            'type': media_type,
-            'media': media_list
-        }
-        
-        return result
-        
-    except Exception as e:
-        return {'success': False, 'message': f'Error Threads: {str(e)}'}
-
 async def handle_downloader(event, client):
     """Handler utama untuk command /d dan /download"""
     if not event.is_private:
@@ -911,8 +698,8 @@ async def handle_downloader(event, client):
                 "`/d <link>` atau `/download <link>`\n"
                 "atau reply pesan yang berisi link\n\n"
                 "**Platform support:**\n"
-                "• TikTok\n• Instagram\n• Facebook\n"
-                "• Pinterest\n• Spotify\n• Threads"
+                "• TikTok\n"
+                "• Instagram"
             )
             return
     
@@ -924,7 +711,7 @@ async def handle_downloader(event, client):
     platform = detect_platform(clean_url)
     
     if not platform:
-        await event.reply("❌ Platform tidak didukung. Gunakan link dari TikTok, Instagram, Facebook, Pinterest, Spotify, atau Threads.")
+        await event.reply("❌ Platform tidak didukung. Gunakan link dari TikTok, Instagram.")
         return
     
     loading = await event.reply(f"⏳ Mengunduh dari **{platform.title()}**...")
@@ -934,14 +721,6 @@ async def handle_downloader(event, client):
             result = await download_tiktok(clean_url)
         elif platform == 'instagram':
             result = await download_instagram(clean_url)
-        elif platform == 'facebook':
-            result = await download_facebook(clean_url)
-        elif platform == 'pinterest':
-            result = await download_pinterest(clean_url)
-        elif platform == 'spotify':
-            result = await download_spotify(clean_url)
-        elif platform == 'threads':
-            result = await download_threads(clean_url)
         else:
             await loading.edit("❌ Platform belum didukung")
             return
@@ -1014,20 +793,7 @@ async def handle_downloader(event, client):
                 else:
                     video_url = result['video'][0]
                     await event.reply(f"📹 **Instagram Video**\n\n🔗 [Download]({video_url})")
-                    
-            elif platform == 'facebook':
-                best_video = get_best_video_url(result['videos'], 'facebook')
-                quality = next((v['quality'] for v in result['videos'] if v['url'] == best_video), 'SD')
-                await event.reply(f"📹 **Facebook Video ({quality})**\n\n🔗 [Download]({best_video})")
-                
-            elif platform == 'threads':
-                if len(result['media']) > 1:
-                    caption_text = f"📹 **Threads Videos** ({len(result['media'])} videos)"
-                    for idx, video_url in enumerate(result['media'][:5], 1):
-                        await event.reply(f"{caption_text if idx == 1 else ''}\n\n🔗 Video {idx}: https://threadster.app{video_url}")
-                else:
-                    await event.reply(f"📹 **Threads Video**\n\n🔗 [Download](https://threadster.app{result['media'][0]})")
-        
+                            
         elif result['type'] == 'images':
             if platform == 'tiktok':
                 caption = (
@@ -1085,14 +851,6 @@ async def handle_downloader(event, client):
                             await event.reply(f"🖼 **Instagram Image {idx}**\n\n🔗 [Download]({img_url})")
                 else:
                     await event.reply(f"🖼 **Instagram Image**\n\n🔗 [Download]({result['images'][0]})")
-                    
-            elif platform == 'threads':
-                if len(result['media']) > 1:
-                    caption_text = f"🖼 **Threads Images** ({len(result['media'])} photos)"
-                    for idx, img_url in enumerate(result['media'][:10], 1):
-                        await event.reply(f"{caption_text if idx == 1 else ''}\n\n🔗 Image {idx}: https://threadster.app{img_url}")
-                else:
-                    await event.reply(f"🖼 **Threads Image**\n\n🔗 [Download](https://threadster.app{result['media'][0]})")
         
         elif result['type'] == 'audio':
             title = result.get('metadata', {}).get('title', 'Unknown')
