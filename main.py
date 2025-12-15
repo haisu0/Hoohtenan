@@ -1,18 +1,30 @@
+# ========== BAGIAN 1 ==========
+# IMPORT, KONFIG, ACCOUNTS, SETUP DASAR
+
 import asyncio
 import os
 import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
+
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from flask import Flask
 from threading import Thread
 
-# === KONFIGURASI ===
+# === KONFIGURASI UTAMA ===
 API_ID = 20958475
 API_HASH = '1cfb28ef51c138a027786e43a27a8225'
 
-# Daftar akun dengan fitur masing-masing
+# === DAFTAR AKUN ===
+# Fitur yang bisa dipakai per akun (opsional):
+# "anti_view_once", "ping", "heartbeat", "scheduled_message",
+# "spam_forward", "save_media", "clearch", "whois", "autopin"
+#
+# Jika fitur tidak mau dipakai, cukup:
+# - Hapus dari "features", atau
+# - Biarkan field pendukungnya None (misal spam_triggers=None, autopin_keywords=None)
+
 ACCOUNTS = [
     {
         "session": "1BVtsOIIBu4Z0S11NsMdWP8Ua-p8C4gFEBAyD0TGmshXRvGQNBYavPrKNFgcEXWz-sDT_w9HLML-9nMrSWTqAAfqvx4Y6157p30Gqy09ViCrgzKyfo7IEdhK7Tqnjlt5lSYwuhfalN4R4GtgjBoY7FQBH7EIYozqwxFp8U93PYdsqWKQdG_bhBqZ2I02dqOqOqc_feGpBFrTwLPLld_tPjIuvBk02zgUGV3E3vYdmdGx8gPFveGbSLLHJdHoFH-E-K_paygXWXVjFopilIAKl9fuw36Wjrd-ijV0OpRIfEEff3sH8jFoGQfdthUaZiLlcr4V373-eeh-LOAc8W-CxBhKDfDne0P0=",
@@ -24,12 +36,21 @@ ACCOUNTS = [
             "heartbeat",
             "scheduled_message",
             "spam_forward",
-            "save_media"
+            "save_media",
+            "clearch",
+            "whois",
+            "autopin",
         ],
         "scheduled_targets": [
-            {"chat_id": 7828063345, "text_pagi": "☀️ Gut Pagi 🌄 🌅", "text_malam": "🌑 🌕 Gut Malam 🌌"}
+            {
+                "chat_id": 7828063345,
+                "text_pagi": "☀️ Gut Pagi 🌄 🌅",
+                "text_malam": "🌑 🌕 Gut Malam 🌌",
+            }
         ],
-        "spam_triggers": ["bebih", "babe", "baby"]
+        "spam_triggers": ["bebih", "babe", "baby"],
+        # kata kunci auto-pin khusus akun ini (private chat only)
+        "autopin_keywords": ["al azet", "al_azet", "al-azet"],
     },
     {
         "session": "1BVtsOGkBu2ip64VAo2MvXJI_g-QkEaYJDaPN2vdLJ1DYy2XU2b-g2s6E_8589ISE61oRvN_sHi_eCRqH4McgMdvkvwJin6XvF1lTQNOHRvnOEcJxiuXZO92nnZmSeo1ntevPs8DPbvqjQ7tRH7mLNpdmGdAzKMtUqjmF0H0S0VGZKImS8k_wvdv2ZwJIUM5kxWDExRX_W__t6rTxNPJ_Umv45-w3DeqwlSpXGhuiLC6MqWwJ03f6YLAhO6hk6UuuLMY7xBd1NEtAsCnXwzJFhAXeO6k_qaffZO5zToPPLdGKSOsZKnZosn3YWMUXzMcFhPmaWIIuMDMJkhPV1lQMkF4LUUxpX90=",
@@ -40,32 +61,47 @@ ACCOUNTS = [
             "ping",
             "heartbeat",
             "scheduled_message",
+            # contoh: akun ini tidak pakai spam_forward, clearch, whois, autopin
         ],
         "scheduled_targets": [
-            {"chat_id": 1488611909, "text_pagi": "☀️ Selamat Pagi 🌄 🌅", "text_malam": "🌑 🌕 Selamat Malam 🌌"}
+            {
+                "chat_id": 1488611909,
+                "text_pagi": "☀️ Selamat Pagi 🌄 🌅",
+                "text_malam": "🌑 🌕 Selamat Malam 🌌",
+            }
         ],
-        "spam_triggers": None
-    }
+        "spam_triggers": None,
+        "autopin_keywords": None,
+    },
 ]
 
+# list global client (diisi di main)
 clients = []
+
+# waktu start untuk /ping uptime
+start_time_global = datetime.now()
 
 # === FITUR: ANTI VIEW-ONCE ===
 async def anti_view_once_and_ttl(event, client, log_channel, log_admin):
     if not event.is_private:
         return
+
     msg = event.message
     ttl = getattr(msg.media, "ttl_seconds", None)
+
     if not msg.media or not ttl:
         return
+
     try:
         sender = await msg.get_sender()
         sender_name = sender.first_name or "Unknown"
         sender_username = f"@{sender.username}" if sender.username else "-"
         sender_id = sender.id
+
         chat = await event.get_chat()
         chat_title = getattr(chat, "title", "Private Chat")
         chat_id = chat.id
+
         caption = (
             "🔓 **MEDIA VIEW-ONCE / TIMER TERTANGKAP**\n\n"
             f"👤 **Pengirim:** `{sender_name}`\n"
@@ -76,15 +112,19 @@ async def anti_view_once_and_ttl(event, client, log_channel, log_admin):
             f"⏱ **Timer:** `{ttl} detik`\n"
             f"📥 **Status:** Berhasil disalin ✅"
         )
+
         folder = "111AntiViewOnce"
         os.makedirs(folder, exist_ok=True)
         file = await msg.download_media(file=folder)
+
         if log_channel:
             await client.send_file(log_channel, file, caption=caption)
         if log_admin:
             await client.send_file(log_admin, file, caption=caption)
+
         if file and os.path.exists(file):
             os.remove(file)
+
     except Exception as e:
         if log_admin:
             await client.send_message(log_admin, f"⚠ Error anti-viewonce: `{e}`")
@@ -94,12 +134,15 @@ async def anti_view_once_and_ttl(event, client, log_channel, log_admin):
 async def auto_forward_spam(event, client, triggers):
     if not event.is_private or not triggers:
         return
+
     msg = event.message.message.lower().strip()
+
     for trigger in triggers:
         pattern = rf"\b{re.escape(trigger)}\b"
         if re.search(pattern, msg):
             sender = await event.get_sender()
             sender_id = sender.id
+
             for _ in range(10):
                 try:
                     await client.forward_messages(sender_id, event.message)
@@ -110,20 +153,22 @@ async def auto_forward_spam(event, client, triggers):
 
 
 # === FITUR: PING ===
-start_time_global = datetime.now()
-
 async def ping_handler(event, client):
     if not event.is_private:
         return
+
     try:
         start = datetime.now()
         msg = await event.reply("Pinging...")
         end = datetime.now()
+
         ms = (end - start).microseconds // 1000
         uptime = datetime.now() - start_time_global
         uptime_str = str(uptime).split('.')[0]
+
         me = await client.get_me()
         akun_nama = me.first_name or "Akun"
+
         text = (
             f"🏓 **Pong!** `{ms}ms`\n\n"
             f"👤 **Akun:** {akun_nama}\n"
@@ -131,7 +176,9 @@ async def ping_handler(event, client):
             f"📡 **Status:** Online\n"
             f"🕒 **Server:** {datetime.now(ZoneInfo('Asia/Jakarta')).strftime('%H:%M:%S')}"
         )
+
         await msg.edit(text)
+
     except Exception as e:
         await event.reply(f"⚠ Error /ping: `{e}`")
 
@@ -140,6 +187,7 @@ async def ping_handler(event, client):
 async def heartbeat(client, log_admin, log_channel, akun_nama):
     last_msg_id = None
     start_time = datetime.now()
+
     while True:
         try:
             uptime = datetime.now() - start_time
@@ -217,7 +265,7 @@ async def process_link(event, client, chat_part, msg_id, target_chat=None):
     me = await client.get_me()
     if event.sender_id != me.id:
         return
-    
+      
     from telethon.errors import (
         RPCError,
         ChannelPrivateError,
@@ -230,11 +278,13 @@ async def process_link(event, client, chat_part, msg_id, target_chat=None):
         if chat_part.startswith("c/"):
             internal_id = chat_part[2:]
             chat_id = int(f"-100{internal_id}")
+
             try:
                 await client.get_permissions(chat_id, 'me')
             except:
                 await event.reply(f"🚫 Ubot belum join channel `{chat_part}`.")
                 return
+
         else:
             try:
                 entity = await client.get_entity(chat_part)
@@ -249,7 +299,7 @@ async def process_link(event, client, chat_part, msg_id, target_chat=None):
             return
 
         send_to = target_chat or event.chat_id
-
+        
         # === PATCH: cek kalau media adalah sticker ===
         if message.media and message.sticker:
             await client.send_file(
@@ -328,7 +378,7 @@ async def handle_save_command(event, client):
     me = await client.get_me()
     if event.sender_id != me.id:
         return
-        
+    
     input_text = event.pattern_match.group(2).strip()
 
     if not input_text:
@@ -374,6 +424,83 @@ async def handle_save_command(event, client):
         pass
 
 
+# === FITUR: CLEAR CHANNEL (KHUSUS CHANNEL) ===
+async def clearch_handler(event, client):
+    me = await client.get_me()
+    if event.sender_id != me.id:
+        return
+      
+    chat = await event.get_chat()
+
+    if not getattr(chat, "broadcast", False):
+        await event.reply("❌ /clearch hanya bisa dipakai di **channel**, bukan grup.")
+        return
+
+    perms = await client.get_permissions(chat, 'me')
+    if not perms.is_admin or not perms.delete_messages:
+        await event.reply("❌ Ubot tidak punya izin **delete messages** di channel ini.")
+        return
+
+    await event.reply("🧹 Menghapus semua pesan di channel...")
+
+    async for msg in client.iter_messages(chat.id):
+        try:
+            await msg.delete()
+        except:
+            pass
+
+    await client.send_message(chat.id, "✅ Semua pesan berhasil dihapus.")
+
+
+# === FITUR: WHOIS (KHUSUS PRIVATE) ===
+async def whois_handler(event, client):
+    if not event.is_private:
+        return
+
+    if not event.is_reply:
+        await event.reply("❌ Reply pesan user yang ingin kamu cek.")
+        return
+
+    reply = await event.get_reply_message()
+    user = await client.get_entity(reply.sender_id)
+
+    text = (
+        f"👤 **WHOIS USER**\n\n"
+        f"🆔 ID: `{user.id}`\n"
+        f"👥 Nama: {user.first_name or '-'} {user.last_name or ''}\n"
+        f"🔗 Username: @{user.username if user.username else '-'}\n"
+        f"⭐ Premium: {'Ya' if getattr(user, 'premium', False) else 'Tidak'}\n"
+        f"🤖 Bot: {'Ya' if user.bot else 'Tidak'}\n"
+    )
+
+    try:
+        photo = await client.download_profile_photo(user.id)
+        await client.send_file(event.chat_id, photo, caption=text)
+        os.remove(photo)
+    except:
+        await event.reply(text)
+
+
+# === FITUR: AUTO-PIN (KHUSUS PRIVATE) ===
+async def autopin_handler(event, client, keywords):
+    if not event.is_private:
+        return
+
+    if not keywords:
+        return
+
+    text = (event.message.message or "").lower()
+
+    if any(word.lower() in text for word in keywords):
+        try:
+            await client.pin_message(event.chat_id, event.message.id)
+        except:
+            pass
+
+
+# ========== BAGIAN 3 ==========
+# WEB SERVER, RESTART LOOP, MAIN + HANDLER
+
 # === RAILWAY WEB SERVER ===
 app = Flask('')
 
@@ -409,39 +536,57 @@ async def main():
         await client.start()
         akun_nama = f"Akun {index}"
 
-        # Anti view-once
+        # === ANTI VIEW-ONCE ===
         if "anti_view_once" in acc["features"]:
             @client.on(events.NewMessage(incoming=True))
             async def handler(event, c=client, lc=acc["log_channel"], la=acc["log_admin"]):
                 await anti_view_once_and_ttl(event, c, lc, la)
 
-        # Spam forward
+        # === SPAM FORWARD ===
         if "spam_forward" in acc["features"] and acc.get("spam_triggers"):
             @client.on(events.NewMessage(incoming=True))
             async def spam_handler(event, c=client, triggers=acc["spam_triggers"]):
                 await auto_forward_spam(event, c, triggers)
 
-        # Ping
+        # === PING ===
         if "ping" in acc["features"]:
             @client.on(events.NewMessage(pattern=r"^/ping$"))
             async def ping(event, c=client):
                 await ping_handler(event, c)
 
-        # Heartbeat
+        # === HEARTBEAT ===
         if "heartbeat" in acc["features"]:
             asyncio.create_task(heartbeat(client, acc["log_admin"], acc["log_channel"], akun_nama))
 
-        # Scheduled message
+        # === SCHEDULED MESSAGE ===
         if "scheduled_message" in acc["features"] and acc.get("scheduled_targets"):
             asyncio.create_task(scheduled_message(client, acc["scheduled_targets"], akun_nama))
 
-        # SAVE MEDIA INLINE
+        # === SAVE MEDIA / COLONG MEDIA ===
         if "save_media" in acc["features"]:
             @client.on(events.NewMessage(pattern=r'^/(save|s)(?:\s+|$)(.*)'))
             async def save_handler(event, c=client):
                 await handle_save_command(event, c)
 
-        # Info restart
+        # === CLEAR CHANNEL (KHUSUS CHANNEL) ===
+        if "clearch" in acc["features"]:
+            @client.on(events.NewMessage(pattern=r"^/clearch$"))
+            async def clearch(event, c=client):
+                await clearch_handler(event, c)
+
+        # === WHOIS (KHUSUS PRIVATE) ===
+        if "whois" in acc["features"]:
+            @client.on(events.NewMessage(pattern=r"^/whois$"))
+            async def whois(event, c=client):
+                await whois_handler(event, c)
+
+        # === AUTO-PIN (KHUSUS PRIVATE) ===
+        if "autopin" in acc["features"]:
+            @client.on(events.NewMessage(incoming=True))
+            async def autopin(event, c=client, kw=acc.get("autopin_keywords", [])):
+                await autopin_handler(event, c, kw)
+
+        # === INFO RESTART ===
         text = (
             f"♻️ **Ubot Restart (Railway)**\n"
             f"👤 {akun_nama}\n"
