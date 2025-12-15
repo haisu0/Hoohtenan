@@ -13,9 +13,9 @@ from flask import Flask
 from threading import Thread
 from telethon.tl.functions.users import GetFullUserRequest
 
-import aiohttp
+import requests
 from bs4 import BeautifulSoup
-from urllib.parse import urlparse, quote
+from urllib.parse import urlparse, parse_qs, urlencode, unquote
 
 # === KONFIGURASI UTAMA ===
 API_ID = 20958475
@@ -45,7 +45,7 @@ ACCOUNTS = [
             "clearch",
             "whois",
             "autopin",
-            "downloader",  # Tambah fitur downloader
+            "downloader",  # Menambahkan fitur downloader ke list
         ],
         "scheduled_targets": [
             {
@@ -65,8 +65,6 @@ clients = []
 
 # waktu start untuk /ping uptime
 start_time_global = datetime.now()
-
-DOWNLOAD_TIMEOUT = 10  # 10 detik timeout
 
 # === FITUR: ANTI VIEW-ONCE ===
 async def anti_view_once_and_ttl(event, client, log_channel, log_admin):
@@ -411,519 +409,6 @@ async def handle_save_command(event, client):
         pass
 
 
-
-# Validasi URL
-def is_valid_url(url):
-    try:
-        result = urlparse(url)
-        return all([result.scheme in ['http', 'https'], result.netloc])
-    except:
-        return False
-
-def is_safe_url(url):
-    suspicious_patterns = [
-        r'javascript:',
-        r'data:',
-        r'vbscript:',
-        r'file:',
-        r'ftp:'
-    ]
-    for pattern in suspicious_patterns:
-        if re.search(pattern, url, re.IGNORECASE):
-            return False
-    return True
-
-def sanitize_url(url):
-    """Remove tracking parameters"""
-    try:
-        parsed = urlparse(url)
-        # Hapus parameter tracking umum
-        return url.split('?')[0] if '?' in url else url
-    except:
-        return url.strip()
-
-# Detect platform dari URL
-def detect_platform(url):
-    url_lower = url.lower()
-    
-    if 'tiktok.com' in url_lower or 'vm.tiktok.com' in url_lower or 'vt.tiktok.com' in url_lower:
-        return 'tiktok'
-    elif 'instagram.com' in url_lower or 'instagr.am' in url_lower:
-        return 'instagram'
-    elif 'facebook.com' in url_lower or 'fb.watch' in url_lower or 'fb.com' in url_lower:
-        return 'facebook'
-    elif 'twitter.com' in url_lower or 'x.com' in url_lower:
-        return 'twitter'
-    elif 'pinterest.com' in url_lower or 'pin.it' in url_lower:
-        return 'pinterest'
-    elif 'spotify.com' in url_lower or 'open.spotify.com' in url_lower:
-        return 'spotify'
-    elif 'threads.net' in url_lower:
-        return 'threads'
-    else:
-        return None
-
-# TikTok Downloader
-async def download_tiktok(url):
-    try:
-        async with aiohttp.ClientSession() as session:
-            headers = {
-                'Accept': 'application/json, text/javascript, */*; q=0.01',
-                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                'Origin': 'https://www.tikwm.com',
-                'Referer': 'https://www.tikwm.com/',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
-            
-            data = {
-                'url': url,
-                'hd': '1'
-            }
-            
-            timeout = aiohttp.ClientTimeout(total=DOWNLOAD_TIMEOUT)
-            async with session.post('https://www.tikwm.com/api/', headers=headers, data=data, timeout=timeout) as response:
-                if response.status != 200:
-                    return None
-                
-                json_data = await response.json()
-                res = json_data.get('data')
-                
-                if not res:
-                    return None
-                
-                # Deteksi tipe konten
-                if res.get('images'):
-                    return {
-                        'type': 'foto',
-                        'platform': 'TikTok',
-                        'urls': res['images'],
-                        'caption': res.get('title', ''),
-                        'author': res.get('author', {}).get('nickname', '')
-                    }
-                else:
-                    video_url = res.get('hdplay') or res.get('play') or res.get('wmplay')
-                    if video_url:
-                        return {
-                            'type': 'video',
-                            'platform': 'TikTok',
-                            'url': video_url,
-                            'caption': res.get('title', ''),
-                            'author': res.get('author', {}).get('nickname', '')
-                        }
-                
-                return None
-                
-    except asyncio.TimeoutError:
-        return {'error': 'Timeout - server tidak merespons dalam 10 detik'}
-    except Exception as e:
-        return {'error': str(e)}
-
-# Instagram Downloader
-async def download_instagram(url):
-    try:
-        async with aiohttp.ClientSession() as session:
-            headers = {
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Origin': 'https://saveig.app',
-                'Referer': 'https://saveig.app/en',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
-            
-            data = {'q': url, 'lang': 'en'}
-            
-            timeout = aiohttp.ClientTimeout(total=DOWNLOAD_TIMEOUT)
-            async with session.post('https://saveig.app/api/ajaxSearch', headers=headers, data=data, timeout=timeout) as response:
-                if response.status != 200:
-                    return None
-                
-                json_data = await response.json()
-                html = json_data.get('data', '')
-                
-                if not html:
-                    return None
-                
-                soup = BeautifulSoup(html, 'html.parser')
-                
-                # Cari semua link download
-                download_links = soup.find_all('a', {'class': 'abutton'})
-                
-                if download_links:
-                    urls = []
-                    for link in download_links:
-                        href = link.get('href')
-                        if href and href.startswith('http'):
-                            urls.append(href)
-                    
-                    if urls:
-                        return {
-                            'type': 'video' if len(urls) == 1 else 'foto',
-                            'platform': 'Instagram',
-                            'urls': urls if len(urls) > 1 else None,
-                            'url': urls[0] if len(urls) == 1 else None
-                        }
-                
-                return None
-                
-    except asyncio.TimeoutError:
-        return {'error': 'Timeout - server tidak merespons dalam 10 detik'}
-    except Exception as e:
-        return {'error': str(e)}
-
-# Facebook Downloader
-async def download_facebook(url):
-    try:
-        async with aiohttp.ClientSession() as session:
-            headers = {
-                'hx-current-url': 'https://getmyfb.com/',
-                'hx-request': 'true',
-                'hx-target': '#target',
-                'hx-trigger': 'form',
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
-            
-            data = {'url': url}
-            
-            timeout = aiohttp.ClientTimeout(total=DOWNLOAD_TIMEOUT)
-            async with session.post('https://getmyfb.com/process', headers=headers, data=data, timeout=timeout) as response:
-                if response.status != 200:
-                    return None
-                
-                html = await response.text()
-                soup = BeautifulSoup(html, 'html.parser')
-                
-                # Extract download links
-                results = []
-                download_links = soup.find_all('a', href=True)
-                
-                for link in download_links:
-                    href = link.get('href')
-                    if href and href.startswith('http'):
-                        text = link.get_text().strip()
-                        if 'Download' in text or 'HD' in text or 'SD' in text:
-                            results.append(href)
-                
-                if results:
-                    return {
-                        'type': 'video',
-                        'platform': 'Facebook',
-                        'url': results[0],  # Ambil kualitas terbaik
-                        'urls': results if len(results) > 1 else None
-                    }
-                
-                return None
-                
-    except asyncio.TimeoutError:
-        return {'error': 'Timeout - server tidak merespons dalam 10 detik'}
-    except Exception as e:
-        return {'error': str(e)}
-
-# Pinterest Downloader
-async def download_pinterest(url):
-    try:
-        async with aiohttp.ClientSession() as session:
-            headers = {
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Origin': 'https://pinterestvideodownloader.com',
-                'Referer': 'https://pinterestvideodownloader.com/',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
-            
-            data = {'url': url}
-            
-            timeout = aiohttp.ClientTimeout(total=DOWNLOAD_TIMEOUT)
-            async with session.post('https://pinterestvideodownloader.com/download.php', headers=headers, data=data, timeout=timeout) as response:
-                if response.status != 200:
-                    return None
-                
-                html = await response.text()
-                
-                # Extract download links menggunakan regex seperti di kode TypeScript
-                pattern = r'<a[^>]+href="(https?://[^"]+\.(?:jpg|png|mp4|gif))"[^>]*>(.*?)</a>'
-                matches = re.finditer(pattern, html, re.IGNORECASE)
-                
-                videos = []
-                images = []
-                
-                for match in matches:
-                    download_url = match.group(1)
-                    text = match.group(2).lower()
-                    
-                    if '.mp4' in download_url or 'video' in text:
-                        videos.append(download_url)
-                    elif '.jpg' in download_url or '.png' in download_url:
-                        images.append(download_url)
-                
-                # Prioritas: video > image
-                if videos:
-                    return {
-                        'type': 'video',
-                        'platform': 'Pinterest',
-                        'url': videos[0]
-                    }
-                elif images:
-                    return {
-                        'type': 'foto',
-                        'platform': 'Pinterest',
-                        'url': images[0]
-                    }
-                
-                return None
-                
-    except asyncio.TimeoutError:
-        return {'error': 'Timeout - server tidak merespons dalam 10 detik'}
-    except Exception as e:
-        return {'error': str(e)}
-
-# Twitter/X Downloader
-async def download_twitter(url):
-    try:
-        async with aiohttp.ClientSession() as session:
-            headers = {
-                'Accept': 'application/json',
-                'Content-Type': 'application/json',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
-            
-            api_url = f'https://twitsave.com/api/info?url={quote(url)}'
-            
-            timeout = aiohttp.ClientTimeout(total=DOWNLOAD_TIMEOUT)
-            async with session.get(api_url, headers=headers, timeout=timeout) as response:
-                if response.status != 200:
-                    return None
-                
-                json_data = await response.json()
-                
-                if json_data.get('downloads'):
-                    downloads = json_data['downloads']
-                    if downloads:
-                        return {
-                            'type': 'video',
-                            'platform': 'Twitter/X',
-                            'url': downloads[0].get('url')
-                        }
-                
-                return None
-                
-    except asyncio.TimeoutError:
-        return {'error': 'Timeout - server tidak merespons dalam 10 detik'}
-    except Exception as e:
-        return {'error': str(e)}
-
-# Threads Downloader
-async def download_threads(url):
-    try:
-        async with aiohttp.ClientSession() as session:
-            # Step 1: Get cookies
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36'
-            }
-            
-            timeout = aiohttp.ClientTimeout(total=DOWNLOAD_TIMEOUT)
-            async with session.get('https://threadster.app/', headers=headers, timeout=timeout) as response:
-                cookies = response.cookies
-            
-            # Step 2: POST request
-            headers['Content-Type'] = 'application/x-www-form-urlencoded'
-            data = {'url': url}
-            
-            async with session.post('https://threadster.app/download', headers=headers, data=data, cookies=cookies, timeout=timeout) as response:
-                if response.status != 200:
-                    return None
-                
-                html = await response.text()
-                
-                # Extract media links
-                pattern = r'<tr><td>(.*?)</td><td><a.*?href="(.*?)".*?</a></td></tr>'
-                matches = re.finditer(pattern, html)
-                
-                videos = []
-                photos = []
-                
-                for match in matches:
-                    resolution = match.group(1).strip()
-                    media_url = match.group(2)
-                    
-                    if '/threadster/image?' in media_url:
-                        photos.append(media_url)
-                    elif '/threadster/video?' in media_url:
-                        videos.append(media_url)
-                
-                if videos:
-                    return {
-                        'type': 'video',
-                        'platform': 'Threads',
-                        'url': videos[0]
-                    }
-                elif photos:
-                    return {
-                        'type': 'foto',
-                        'platform': 'Threads',
-                        'urls': photos
-                    }
-                
-                return None
-                
-    except asyncio.TimeoutError:
-        return {'error': 'Timeout - server tidak merespons dalam 10 detik'}
-    except Exception as e:
-        return {'error': str(e)}
-
-# Main downloader handler
-async def handle_download_command(event, client):
-    if not event.is_private:
-        return
-    
-    me = await client.get_me()
-    if event.sender_id != me.id:
-        return
-    
-    # Ambil URL dari command atau reply
-    input_text = event.pattern_match.group(2).strip()
-    
-    if not input_text:
-        if event.is_reply:
-            reply = await event.get_reply_message()
-            if reply and reply.message:
-                input_text = reply.message.strip()
-            else:
-                await event.reply("❌ Pesan balasan tidak berisi link.")
-                return
-        else:
-            await event.reply("❌ Kirim link sosial media seperti TikTok, Instagram, Facebook, dll.\n\n**Contoh:** `/d https://tiktok.com/...`")
-            return
-    
-    # Validasi URL
-    if not is_valid_url(input_text):
-        await event.reply("❌ Link tidak valid. Pastikan URL dimulai dengan http:// atau https://")
-        return
-    
-    if not is_safe_url(input_text):
-        await event.reply("❌ Link tidak aman atau tidak didukung.")
-        return
-    
-    # Sanitize URL
-    url = sanitize_url(input_text)
-    
-    # Detect platform
-    platform = detect_platform(url)
-    
-    if not platform:
-        await event.reply("❌ Platform tidak didukung. Saat ini mendukung:\n• TikTok\n• Instagram\n• Facebook\n• Twitter/X\n• Pinterest\n• Threads")
-        return
-    
-    # Loading message
-    loading = await event.reply(f"⏳ Mengunduh dari **{platform.title()}**...")
-    
-    try:
-        # Download berdasarkan platform
-        result = None
-        
-        if platform == 'tiktok':
-            result = await download_tiktok(url)
-        elif platform == 'instagram':
-            result = await download_instagram(url)
-        elif platform == 'facebook':
-            result = await download_facebook(url)
-        elif platform == 'twitter':
-            result = await download_twitter(url)
-        elif platform == 'pinterest':
-            result = await download_pinterest(url)
-        elif platform == 'threads':
-            result = await download_threads(url)
-        
-        if not result:
-            await loading.edit("❌ Gagal mengunduh media. Link mungkin tidak valid atau konten private.")
-            return
-        
-        if 'error' in result:
-            await loading.edit(f"❌ Error: {result['error']}")
-            return
-        
-        # Download dan kirim media
-        caption = f"📥 **Downloaded from {result['platform']}**"
-        if result.get('caption'):
-            caption += f"\n\n{result['caption']}"
-        if result.get('author'):
-            caption += f"\n👤 {result['author']}"
-        
-        # Handle multiple URLs (foto album)
-        if result.get('urls'):
-            files = []
-            for media_url in result['urls'][:10]:  # Limit 10 files
-                try:
-                    async with aiohttp.ClientSession() as session:
-                        timeout = aiohttp.ClientTimeout(total=30)
-                        async with session.get(media_url, timeout=timeout) as resp:
-                            if resp.status == 200:
-                                content = await resp.read()
-                                
-                                # Simpan temporary
-                                ext = 'jpg' if result['type'] == 'foto' else 'mp4'
-                                temp_file = f"temp_download_{datetime.now().timestamp()}.{ext}"
-                                
-                                with open(temp_file, 'wb') as f:
-                                    f.write(content)
-                                
-                                files.append(temp_file)
-                except:
-                    continue
-            
-            if files:
-                await client.send_file(event.chat_id, files, caption=caption)
-                
-                # Hapus files temporary
-                for f in files:
-                    try:
-                        os.remove(f)
-                    except:
-                        pass
-            else:
-                await loading.edit("❌ Gagal mengunduh media.")
-                return
-        
-        # Handle single URL
-        elif result.get('url'):
-            try:
-                async with aiohttp.ClientSession() as session:
-                    timeout = aiohttp.ClientTimeout(total=30)
-                    async with session.get(result['url'], timeout=timeout) as resp:
-                        if resp.status == 200:
-                            content = await resp.read()
-                            
-                            # Simpan temporary
-                            ext = 'jpg' if result['type'] == 'foto' else 'mp4'
-                            temp_file = f"temp_download_{datetime.now().timestamp()}.{ext}"
-                            
-                            with open(temp_file, 'wb') as f:
-                                f.write(content)
-                            
-                            await client.send_file(event.chat_id, temp_file, caption=caption)
-                            
-                            # Hapus file temporary
-                            try:
-                                os.remove(temp_file)
-                            except:
-                                pass
-                        else:
-                            await loading.edit("❌ Gagal mengunduh media.")
-                            return
-            except Exception as e:
-                await loading.edit(f"❌ Error saat mengunduh: {str(e)}")
-                return
-        
-        # Hapus loading message
-        try:
-            await loading.delete()
-        except:
-            pass
-            
-    except Exception as e:
-        await loading.edit(f"❌ Error: {str(e)}")
-
-
 # === FITUR: CLEAR CHANNEL (KHUSUS CHANNEL) ===
 async def clearch_handler(event, client):
     chat = await event.get_chat()
@@ -1025,6 +510,503 @@ async def autopin_handler(event, client, keywords):
             pass
 
 
+# === FITUR: DOWNLOADER ===
+
+def is_valid_url(url):
+    """Validasi apakah string adalah URL yang valid"""
+    try:
+        result = urlparse(url)
+        return all([result.scheme in ['http', 'https'], result.netloc])
+    except:
+        return False
+
+def sanitize_url(url):
+    """Membersihkan URL dari tracking parameters"""
+    try:
+        parsed = urlparse(url)
+        # Hapus tracking parameters umum
+        tracking_params = ["utm_source", "utm_medium", "utm_campaign", "fbclid", "gclid", "_gl"]
+        query_params = parse_qs(parsed.query)
+        for param in tracking_params:
+            query_params.pop(param, None)
+        
+        clean_query = urlencode(query_params, doseq=True)
+        clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+        if clean_query:
+            clean_url += f"?{clean_query}"
+        return clean_url.strip()
+    except:
+        return url.strip()
+
+def detect_platform(url):
+    """Deteksi platform dari URL"""
+    url_lower = url.lower()
+    
+    platforms = {
+        'tiktok': ['tiktok.com', 'vt.tiktok.com', 'vm.tiktok.com'],
+        'instagram': ['instagram.com', 'instagr.am'],
+        'facebook': ['facebook.com', 'fb.watch', 'fb.com'],
+        'pinterest': ['pinterest.com', 'pin.it'],
+        'spotify': ['spotify.com', 'spotify.link'],
+        'threads': ['threads.net']
+    }
+    
+    for platform, domains in platforms.items():
+        if any(domain in url_lower for domain in domains):
+            return platform
+    
+    return None
+
+async def download_tiktok(url, quality='best'):
+    """Handler untuk download TikTok"""
+    try:
+        headers = {
+            'Accept': 'application/json, text/javascript, */*; q=0.01',
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            'Origin': 'https://www.tikwm.com',
+            'Referer': 'https://www.tikwm.com/',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        
+        data = {
+            'url': url,
+            'hd': '1' if quality == 'best' else '0'
+        }
+        
+        response = requests.post('https://www.tikwm.com/api/', headers=headers, data=data, timeout=10)
+        response.raise_for_status()
+        
+        json_data = response.json()
+        res = json_data.get('data')
+        
+        if not res:
+            return {'success': False, 'message': 'Gagal mengambil data dari TikTok'}
+        
+        result = {
+            'success': True,
+            'platform': 'TikTok',
+            'type': '',
+            'video': {},
+            'images': [],
+            'author': {
+                'username': res.get('author', {}).get('unique_id', ''),
+                'nickname': res.get('author', {}).get('nickname', ''),
+            },
+            'title': res.get('title', ''),
+            'stats': {
+                'views': res.get('play_count', 0),
+                'likes': res.get('digg_count', 0),
+                'comments': res.get('comment_count', 0),
+            }
+        }
+        
+        # Deteksi tipe konten
+        if res.get('images'):
+            result['type'] = 'images'
+            result['images'] = res['images']
+        else:
+            result['type'] = 'video'
+            result['video'] = {
+                'watermark': res.get('wmplay', ''),
+                'nowatermark': res.get('play', ''),
+                'hd': res.get('hdplay', '')
+            }
+        
+        return result
+        
+    except Exception as e:
+        return {'success': False, 'message': f'Error TikTok: {str(e)}'}
+
+async def download_instagram(url, quality='best'):
+    """Handler untuk download Instagram"""
+    try:
+        headers = {
+            'Accept': 'application/json, text/plain, */*',
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            'Origin': 'https://yt1s.io',
+            'Referer': 'https://yt1s.io/',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        
+        data = {
+            'q': url,
+            'w': '',
+            'p': 'home',
+            'lang': 'en'
+        }
+        
+        response = requests.post('https://yt1s.io/api/ajaxSearch', headers=headers, data=data, timeout=10)
+        response.raise_for_status()
+        
+        json_data = response.json()
+        html = json_data.get('data', '')
+        
+        if not html:
+            return {'success': False, 'message': 'Tidak ada data dari Instagram'}
+        
+        soup = BeautifulSoup(html, 'html.parser')
+        links = soup.find_all('a', href=True, title=True)
+        
+        videos = []
+        images = []
+        thumb = ''
+        
+        for link in links:
+            href = link['href']
+            title = link['title'].lower()
+            
+            if 'thumbnail' in title and href.startswith('http'):
+                thumb = href
+            elif 'video' in title and href.startswith('http') and href != '/en/home':
+                videos.append(href)
+            elif ('foto' in title or 'image' in title) and href.startswith('http'):
+                images.append(href)
+        
+        result = {
+            'success': True,
+            'platform': 'Instagram',
+            'type': 'video' if videos else 'images' if images else 'unknown',
+            'video': videos,
+            'images': images,
+            'thumb': thumb
+        }
+        
+        return result
+        
+    except Exception as e:
+        return {'success': False, 'message': f'Error Instagram: {str(e)}'}
+
+async def download_facebook(url, quality='best'):
+    """Handler untuk download Facebook"""
+    try:
+        headers = {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'hx-current-url': 'https://getmyfb.com/',
+            'hx-request': 'true',
+        }
+        
+        data = {
+            'id': unquote(url),
+            'locale': 'en'
+        }
+        
+        response = requests.post('https://getmyfb.com/process', headers=headers, data=data, timeout=10)
+        response.raise_for_status()
+        
+        html = response.text
+        soup = BeautifulSoup(html, 'html.parser')
+        
+        # Extract links
+        video_links = []
+        for link in soup.find_all('a', href=True):
+            href = link['href']
+            if href.startswith('http') and 'facebook' in href.lower():
+                text = link.get_text(strip=True)
+                quality_text = 'HD' if 'hd' in text.lower() else 'SD'
+                video_links.append({
+                    'quality': quality_text,
+                    'url': href
+                })
+        
+        if not video_links:
+            return {'success': False, 'message': 'Tidak dapat menemukan video'}
+        
+        result = {
+            'success': True,
+            'platform': 'Facebook',
+            'type': 'video',
+            'videos': video_links
+        }
+        
+        return result
+        
+    except Exception as e:
+        return {'success': False, 'message': f'Error Facebook: {str(e)}'}
+
+async def download_pinterest(url, quality='best'):
+    """Handler untuk download Pinterest"""
+    try:
+        headers = {
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Origin': 'https://pinterestvideodownloader.com',
+            'Referer': 'https://pinterestvideodownloader.com/',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        
+        data = {'url': url}
+        
+        response = requests.post('https://pinterestvideodownloader.com/download.php', 
+                               headers=headers, data=data, timeout=10)
+        response.raise_for_status()
+        
+        html = response.text
+        soup = BeautifulSoup(html, 'html.parser')
+        
+        videos = []
+        images = []
+        
+        for link in soup.find_all('a', href=True):
+            href = link['href']
+            if any(ext in href.lower() for ext in ['.mp4', '.m3u8']):
+                videos.append(href)
+            elif any(ext in href.lower() for ext in ['.jpg', '.png', '.jpeg']):
+                images.append(href)
+        
+        media_type = 'video' if videos else 'images' if images else 'unknown'
+        media_url = videos[0] if videos else images[0] if images else None
+        
+        if not media_url:
+            return {'success': False, 'message': 'Tidak dapat menemukan konten'}
+        
+        result = {
+            'success': True,
+            'platform': 'Pinterest',
+            'type': media_type,
+            'url': media_url
+        }
+        
+        return result
+        
+    except Exception as e:
+        return {'success': False, 'message': f'Error Pinterest: {str(e)}'}
+
+async def download_spotify(url):
+    """Handler untuk download Spotify"""
+    try:
+        headers = {
+            'Accept': 'application/json, text/plain, */*',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Origin': 'https://spotmp3.app',
+            'Referer': 'https://spotmp3.app/'
+        }
+        
+        check_url = f'https://spotmp3.app/api/check-direct-download?url={requests.utils.quote(url)}'
+        response = requests.get(check_url, headers=headers, timeout=10)
+        response.raise_for_status()
+        
+        check_data = response.json()
+        direct_url = f'https://spotmp3.app/api/direct-download?url={requests.utils.quote(url)}'
+        
+        result = {
+            'success': True,
+            'platform': 'Spotify',
+            'type': 'audio',
+            'url': direct_url,
+            'cached': check_data.get('cached', False)
+        }
+        
+        return result
+        
+    except Exception as e:
+        return {'success': False, 'message': f'Error Spotify: {str(e)}'}
+
+async def download_threads(url, quality='best'):
+    """Handler untuk download Threads"""
+    try:
+        # Step 1: Get cookies
+        cookie_res = requests.get('https://threadster.app/', timeout=10)
+        cookies = cookie_res.cookies
+        
+        # Step 2: POST request
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36',
+            'Content-Type': 'application/x-www-form-urlencoded'
+        }
+        
+        data = {'url': url}
+        
+        response = requests.post('https://threadster.app/download', 
+                               headers=headers, data=data, cookies=cookies, timeout=10)
+        response.raise_for_status()
+        
+        html = response.text
+        soup = BeautifulSoup(html, 'html.parser')
+        
+        # Extract media
+        videos = []
+        images = []
+        
+        for row in soup.find_all('tr'):
+            cells = row.find_all('td')
+            if len(cells) >= 2:
+                link = cells[1].find('a')
+                if link and link.get('href'):
+                    href = link['href']
+                    if '/threadster/video?' in href:
+                        videos.append(href)
+                    elif '/threadster/image?' in href:
+                        images.append(href)
+        
+        media_type = 'video' if videos else 'images' if images else 'unknown'
+        media_list = videos if videos else images
+        
+        if not media_list:
+            return {'success': False, 'message': 'Tidak dapat menemukan konten'}
+        
+        result = {
+            'success': True,
+            'platform': 'Threads',
+            'type': media_type,
+            'media': media_list
+        }
+        
+        return result
+        
+    except Exception as e:
+        return {'success': False, 'message': f'Error Threads: {str(e)}'}
+
+async def handle_downloader(event, client):
+    """Handler utama untuk command /d dan /download"""
+    if not event.is_private:
+        return
+    
+    me = await client.get_me()
+    if event.sender_id != me.id:
+        return
+    
+    # Ambil input dari command atau reply
+    input_text = event.pattern_match.group(2).strip() if event.pattern_match.group(2) else ''
+    
+    if not input_text:
+        if event.is_reply:
+            reply = await event.get_reply_message()
+            if reply and reply.message:
+                input_text = reply.message.strip()
+            else:
+                await event.reply("❌ Pesan balasan tidak berisi link.")
+                return
+        else:
+            await event.reply(
+                "❌ **Cara pakai:**\n"
+                "`/d <link>` atau `/download <link>`\n"
+                "atau reply pesan yang berisi link\n\n"
+                "**Platform support:**\n"
+                "• TikTok\n• Instagram\n• Facebook\n"
+                "• Pinterest\n• Spotify\n• Threads"
+            )
+            return
+    
+    # Validasi URL
+    if not is_valid_url(input_text):
+        await event.reply("❌ Input bukan link yang valid!")
+        return
+    
+    # Sanitize dan deteksi platform
+    clean_url = sanitize_url(input_text)
+    platform = detect_platform(clean_url)
+    
+    if not platform:
+        await event.reply("❌ Platform tidak didukung. Gunakan link dari TikTok, Instagram, Facebook, Pinterest, Spotify, atau Threads.")
+        return
+    
+    # Kirim loading message
+    loading = await event.reply(f"⏳ Mengunduh dari **{platform.title()}**...")
+    
+    try:
+        # Panggil handler sesuai platform
+        if platform == 'tiktok':
+            result = await download_tiktok(clean_url)
+        elif platform == 'instagram':
+            result = await download_instagram(clean_url)
+        elif platform == 'facebook':
+            result = await download_facebook(clean_url)
+        elif platform == 'pinterest':
+            result = await download_pinterest(clean_url)
+        elif platform == 'spotify':
+            result = await download_spotify(clean_url)
+        elif platform == 'threads':
+            result = await download_threads(clean_url)
+        else:
+            await loading.edit("❌ Platform belum didukung")
+            return
+        
+        # Hapus loading message
+        try:
+            await loading.delete()
+        except:
+            pass
+        
+        # Proses hasil
+        if not result.get('success'):
+            await event.reply(f"❌ {result.get('message', 'Gagal mengunduh')}")
+            return
+        
+        # Kirim media berdasarkan tipe
+        if result['type'] == 'video':
+            if platform == 'tiktok':
+                video_url = result['video'].get('hd') or result['video'].get('nowatermark')
+                caption = (
+                    f"📹 **TikTok Video**\n\n"
+                    f"👤 @{result['author']['username']}\n"
+                    f"📝 {result['title'][:100]}...\n"
+                    f"👁 {result['stats']['views']:,} views"
+                )
+                await event.reply(f"{caption}\n\n🔗 [Download]({video_url})")
+            elif platform == 'instagram':
+                for idx, video_url in enumerate(result['video'][:5], 1):
+                    await event.reply(f"📹 **Instagram Video {idx}**\n\n🔗 [Download]({video_url})")
+            elif platform == 'facebook':
+                for video in result['videos'][:3]:
+                    await event.reply(f"📹 **Facebook Video ({video['quality']})**\n\n🔗 [Download]({video['url']})")
+            elif platform == 'threads':
+                for idx, video_url in enumerate(result['media'][:5], 1):
+                    await event.reply(f"📹 **Threads Video {idx}**\n\n🔗 [Download](https://threadster.app{video_url})")
+        
+        elif result['type'] == 'images':
+            if platform == 'tiktok':
+                caption = (
+                    f"🖼 **TikTok Images ({len(result['images'])} foto)**\n\n"
+                    f"👤 @{result['author']['username']}\n"
+                    f"📝 {result['title'][:100]}..."
+                )
+                # Download dan kirim sebagai album
+                files = []
+                for img_url in result['images'][:10]:
+                    try:
+                        img_res = requests.get(img_url, timeout=10)
+                        if img_res.status_code == 200:
+                            filename = f"tiktok_{datetime.now().timestamp()}.jpg"
+                            with open(filename, 'wb') as f:
+                                f.write(img_res.content)
+                            files.append(filename)
+                    except:
+                        pass
+                
+                if files:
+                    await client.send_file(event.chat_id, files, caption=caption)
+                    for f in files:
+                        try:
+                            os.remove(f)
+                        except:
+                            pass
+            elif platform == 'instagram':
+                for idx, img_url in enumerate(result['images'][:10], 1):
+                    await event.reply(f"🖼 **Instagram Image {idx}**\n\n🔗 [Download]({img_url})")
+            elif platform == 'threads':
+                for idx, img_url in enumerate(result['media'][:10], 1):
+                    await event.reply(f"🖼 **Threads Image {idx}**\n\n🔗 [Download](https://threadster.app{img_url})")
+        
+        elif result['type'] == 'audio':
+            caption = f"🎵 **Spotify Audio**\n\n🔗 [Download]({result['url']})"
+            if not result.get('cached'):
+                caption += "\n\n⚠️ File sedang disiapkan, coba lagi dalam beberapa detik"
+            await event.reply(caption)
+        
+        else:
+            if 'url' in result:
+                await event.reply(f"📥 **{platform.title()}**\n\n🔗 [Download]({result['url']})")
+            else:
+                await event.reply("✅ Media berhasil diproses!")
+        
+    except Exception as e:
+        try:
+            await loading.delete()
+        except:
+            pass
+        await event.reply(f"🚨 Error: `{str(e)}`")
+
 # ========== BAGIAN 3 ==========
 # WEB SERVER, RESTART LOOP, MAIN + HANDLER
 
@@ -1095,10 +1077,11 @@ async def main():
             async def save_handler(event, c=client):
                 await handle_save_command(event, c)
 
+        # === DOWNLOADER ===
         if "downloader" in acc["features"]:
-            @client.on(events.NewMessage(pattern=r'^/(download|d)(?:\s+|$)(.*)'))
-            async def download_handler(event, c=client):
-                await handle_download_command(event, c)
+            @client.on(events.NewMessage(pattern=r'^/(d|download)(?:\s+|$)(.*)'))
+            async def downloader_handler(event, c=client):
+                await handle_downloader(event, c)
 
         # === CLEAR CHANNEL (KHUSUS CHANNEL) ===
         if "clearch" in acc["features"]:
