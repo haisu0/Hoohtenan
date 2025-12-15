@@ -13,10 +13,9 @@ from flask import Flask
 from threading import Thread
 from telethon.tl.functions.users import GetFullUserRequest
 
-import httpx
+import requests
 from bs4 import BeautifulSoup
-import yt_dlp
-import mimetypes
+from urllib.parse import urlparse, parse_qs, urlencode, unquote
 
 # === KONFIGURASI UTAMA ===
 API_ID = 20958475
@@ -46,7 +45,7 @@ ACCOUNTS = [
             "clearch",
             "whois",
             "autopin",
-            "downloader",  # Tambah fitur downloader
+            "downloader",
         ],
         "scheduled_targets": [
             {
@@ -56,7 +55,6 @@ ACCOUNTS = [
             }
         ],
         "spam_triggers": ["bebih", "babe", "baby"],
-        # kata kunci auto-pin khusus akun ini (private chat only)
         "autopin_keywords": ["al azet", "al_azet", "al-azet"],
     }
 ]
@@ -511,122 +509,340 @@ async def autopin_handler(event, client, keywords):
             pass
 
 
-# === FITUR: DOWNLOADER (MULTI PLATFORM) ===
+# === FITUR: DOWNLOADER ===
 
-# Pattern untuk cek platform
-PLATFORM_PATTERNS = {
-    "TikTok": re.compile(r'(?:^|\.)tiktok\.com', re.IGNORECASE),
-    "Instagram": re.compile(r'(?:^|\.)instagram\.com|instagr\.am', re.IGNORECASE),
-    "Facebook": re.compile(r'(?:^|\.)facebook\.com|fb\.watch', re.IGNORECASE),
-    "Pinterest": re.compile(r'(?:^|\.)pinterest\.com|pin\.it', re.IGNORECASE),
-    "Spotify": re.compile(r'(?:^|\.)spotify\.com', re.IGNORECASE),
-    "Threads": re.compile(r'(?:^|\.)threads\.(net|com)', re.IGNORECASE),
-}
+def is_valid_url(url):
+    """Validasi apakah string adalah URL yang valid"""
+    try:
+        result = urlparse(url)
+        return all([result.scheme in ['http', 'https'], result.netloc])
+    except:
+        return False
 
-# Regex untuk extract URL
-URL_REGEX = re.compile(
-    r'https?://(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&/=]*)',
-    re.IGNORECASE
-)
-
+def sanitize_url(url):
+    """Membersihkan URL dari tracking parameters"""
+    try:
+        parsed = urlparse(url)
+        # Hapus tracking parameters umum
+        tracking_params = ["utm_source", "utm_medium", "utm_campaign", "fbclid", "gclid", "_gl"]
+        query_params = parse_qs(parsed.query)
+        for param in tracking_params:
+            query_params.pop(param, None)
+        
+        clean_query = urlencode(query_params, doseq=True)
+        clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+        if clean_query:
+            clean_url += f"?{clean_query}"
+        return clean_url.strip()
+    except:
+        return url.strip()
 
 def detect_platform(url):
-    """Deteksi platform dari URL"""
-    for platform, pattern in PLATFORM_PATTERNS.items():
+    """Deteksi platform dari URL menggunakan regex yang lebih akurat"""
+    
+    patterns = {
+        'tiktok': re.compile(r'(?:^|\.)tiktok\.com', re.IGNORECASE),
+        'instagram': re.compile(r'(?:^|\.)instagram\.com|instagr\.am', re.IGNORECASE),
+        'facebook': re.compile(r'(?:^|\.)facebook\.com|fb\.watch', re.IGNORECASE),
+        'pinterest': re.compile(r'(?:^|\.)pinterest\.com|pin\.it', re.IGNORECASE),
+        'spotify': re.compile(r'(?:^|\.)spotify\.com', re.IGNORECASE),
+        'threads': re.compile(r'(?:^|\.)threads\.(net|com)', re.IGNORECASE),
+    }
+    
+    for platform, pattern in patterns.items():
         if pattern.search(url):
             return platform
+    
     return None
 
+def get_best_video_url(video_dict, platform='tiktok'):
+    """Memilih URL video dengan kualitas terbaik berdasarkan prioritas"""
+    
+    if platform == 'tiktok':
+        # Prioritas: nowatermark_hd > nowatermark > watermark
+        if video_dict.get('hd'):
+            return video_dict['hd']
+        elif video_dict.get('nowatermark'):
+            return video_dict['nowatermark']
+        elif video_dict.get('watermark'):
+            return video_dict['watermark']
+    
+    # Untuk platform lain, ambil yang pertama tersedia
+    for key in video_dict:
+        if video_dict[key]:
+            return video_dict[key]
+    
+    return None
 
-async def download_with_ytdlp(url, platform):
-    """Download media menggunakan yt-dlp"""
+async def download_tiktok(url, quality='best'):
+    """Handler untuk download TikTok"""
     try:
-        # Konfigurasi yt-dlp
-        download_folder = "downloads_temp"
-        os.makedirs(download_folder, exist_ok=True)
-        
-        ydl_opts = {
-            'outtmpl': f'{download_folder}/%(id)s.%(ext)s',
-            'quiet': True,
-            'no_warnings': True,
-            'format': 'best',  # Pilih kualitas terbaik
-            'nocheckcertificate': True,
+        headers = {
+            'Accept': 'application/json, text/javascript, */*; q=0.01',
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            'Origin': 'https://www.tikwm.com',
+            'Referer': 'https://www.tikwm.com/',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
         
-        # Konfigurasi khusus per platform
-        if platform == "Instagram":
-            ydl_opts['format'] = 'best'
-        elif platform == "TikTok":
-            ydl_opts['format'] = 'best'
-        elif platform == "Facebook":
-            ydl_opts['format'] = 'best'
+        data = {
+            'url': url,
+            'hd': '1' if quality == 'best' else '0'
+        }
         
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            
-            # Cek apakah ada multiple entries (playlist/album)
-            if 'entries' in info:
-                entries = list(info['entries'])
-                files = []
-                
-                for entry in entries:
-                    if entry:
-                        filepath = ydl.prepare_filename(entry)
-                        if os.path.exists(filepath):
-                            files.append(filepath)
-                
-                return {
-                    'success': True,
-                    'platform': platform,
-                    'files': files,
-                    'type': 'multiple',
-                    'title': info.get('title', 'Media'),
-                }
-            else:
-                # Single file
-                filepath = ydl.prepare_filename(info)
-                
-                if os.path.exists(filepath):
-                    return {
-                        'success': True,
-                        'platform': platform,
-                        'files': [filepath],
-                        'type': 'single',
-                        'title': info.get('title', 'Media'),
-                    }
+        response = requests.post('https://www.tikwm.com/api/', headers=headers, data=data, timeout=10)
+        response.raise_for_status()
         
-        return {'success': False, 'error': 'File tidak ditemukan setelah download'}
+        json_data = response.json()
+        res = json_data.get('data')
+        
+        if not res:
+            return {'success': False, 'message': 'Gagal mengambil data dari TikTok'}
+        
+        result = {
+            'success': True,
+            'platform': 'TikTok',
+            'type': '',
+            'video': {},
+            'images': [],
+            'author': {
+                'username': res.get('author', {}).get('unique_id', ''),
+                'nickname': res.get('author', {}).get('nickname', ''),
+            },
+            'title': res.get('title', ''),
+            'stats': {
+                'views': res.get('play_count', 0),
+                'likes': res.get('digg_count', 0),
+                'comments': res.get('comment_count', 0),
+            }
+        }
+        
+        # Deteksi tipe konten
+        if res.get('images'):
+            result['type'] = 'images'
+            result['images'] = res['images']
+        else:
+            result['type'] = 'video'
+            result['video'] = {
+                'watermark': res.get('wmplay', ''),
+                'nowatermark': res.get('play', ''),
+                'hd': res.get('hdplay', '')
+            }
+        
+        return result
         
     except Exception as e:
-        return {'success': False, 'error': str(e)}
+        return {'success': False, 'message': f'Error TikTok: {str(e)}'}
 
-
-def categorize_files(files):
-    """Kategorikan file menjadi foto dan video"""
-    photos = []
-    videos = []
-    
-    for filepath in files:
-        mime_type, _ = mimetypes.guess_type(filepath)
+async def download_instagram(url, quality='best'):
+    """Handler untuk download Instagram"""
+    try:
+        headers = {
+            'Accept': 'application/json, text/plain, */*',
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            'Origin': 'https://yt1s.io',
+            'Referer': 'https://yt1s.io/',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
         
-        if mime_type:
-            if mime_type.startswith('image'):
-                photos.append(filepath)
-            elif mime_type.startswith('video'):
-                videos.append(filepath)
-        else:
-            # Fallback ke ekstensi file
-            ext = os.path.splitext(filepath)[1].lower()
-            if ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp']:
-                photos.append(filepath)
-            elif ext in ['.mp4', '.mov', '.avi', '.mkv', '.webm']:
-                videos.append(filepath)
-    
-    return photos, videos
+        data = {
+            'q': url,
+            'w': '',
+            'p': 'home',
+            'lang': 'en'
+        }
+        
+        response = requests.post('https://yt1s.io/api/ajaxSearch', headers=headers, data=data, timeout=10)
+        response.raise_for_status()
+        
+        json_data = response.json()
+        
+        if json_data.get('status') != 'ok':
+            return {'success': False, 'message': 'Gagal mengambil data dari Instagram'}
+        
+        result = {
+            'success': True,
+            'platform': 'Instagram',
+            'type': '',
+            'video': [],
+            'images': []
+        }
+        
+        # Parse HTML response
+        soup = BeautifulSoup(json_data.get('data', ''), 'html.parser')
+        
+        # Cari video links
+        video_links = soup.find_all('a', {'class': 'abutton is-success'})
+        if video_links:
+            result['type'] = 'video'
+            for link in video_links:
+                result['video'].append(link.get('href'))
+        
+        # Cari image links
+        img_links = soup.find_all('img')
+        if img_links and not result['video']:
+            result['type'] = 'images'
+            for img in img_links:
+                src = img.get('src')
+                if src and 'instagram' in src:
+                    result['images'].append(src)
+        
+        if not result['video'] and not result['images']:
+            return {'success': False, 'message': 'Tidak ada media ditemukan'}
+        
+        return result
+        
+    except Exception as e:
+        return {'success': False, 'message': f'Error Instagram: {str(e)}'}
 
+async def download_facebook(url, quality='best'):
+    """Handler untuk download Facebook"""
+    try:
+        headers = {
+            'Accept': 'application/json, text/plain, */*',
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Origin': 'https://fdownloader.net',
+            'Referer': 'https://fdownloader.net/',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        
+        data = {'url': url}
+        
+        response = requests.post('https://fdownloader.net/api/ajaxSearch', headers=headers, data=data, timeout=10)
+        response.raise_for_status()
+        
+        json_data = response.json()
+        
+        if json_data.get('status') != 'ok':
+            return {'success': False, 'message': 'Gagal mengambil data dari Facebook'}
+        
+        result = {
+            'success': True,
+            'platform': 'Facebook',
+            'type': 'video',
+            'videos': []
+        }
+        
+        # Parse HTML
+        soup = BeautifulSoup(json_data.get('data', ''), 'html.parser')
+        links = soup.find_all('a', href=True)
+        
+        for link in links:
+            href = link.get('href')
+            text = link.get_text(strip=True)
+            if href and ('facebook' in href or 'fbcdn' in href):
+                quality_text = 'HD' if 'HD' in text else 'SD'
+                result['videos'].append({
+                    'url': href,
+                    'quality': quality_text
+                })
+        
+        if not result['videos']:
+            return {'success': False, 'message': 'Tidak ada video ditemukan'}
+        
+        return result
+        
+    except Exception as e:
+        return {'success': False, 'message': f'Error Facebook: {str(e)}'}
 
-async def handle_download_command(event, client):
-    """Handler untuk command /d dan /download"""
+async def download_pinterest(url, quality='best'):
+    """Handler untuk download Pinterest"""
+    try:
+        headers = {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        
+        api_url = f'https://api.pinterestdownloader.com/v1/download?url={url}'
+        
+        response = requests.get(api_url, headers=headers, timeout=10)
+        response.raise_for_status()
+        
+        json_data = response.json()
+        
+        if not json_data.get('success'):
+            return {'success': False, 'message': 'Gagal mengambil data dari Pinterest'}
+        
+        result = {
+            'success': True,
+            'platform': 'Pinterest',
+            'type': json_data.get('type', 'image'),
+            'url': json_data.get('url', '')
+        }
+        
+        return result
+        
+    except Exception as e:
+        return {'success': False, 'message': f'Error Pinterest: {str(e)}'}
+
+async def download_spotify(url, quality='best'):
+    """Handler untuk download Spotify"""
+    try:
+        headers = {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        
+        api_url = f'https://api.spotifydown.com/download/{url}'
+        
+        response = requests.get(api_url, headers=headers, timeout=10)
+        response.raise_for_status()
+        
+        json_data = response.json()
+        
+        if not json_data.get('success'):
+            return {'success': False, 'message': 'Gagal mengambil data dari Spotify'}
+        
+        result = {
+            'success': True,
+            'platform': 'Spotify',
+            'type': 'audio',
+            'url': json_data.get('link', ''),
+            'cached': json_data.get('cached', False)
+        }
+        
+        return result
+        
+    except Exception as e:
+        return {'success': False, 'message': f'Error Spotify: {str(e)}'}
+
+async def download_threads(url, quality='best'):
+    """Handler untuk download Threads"""
+    try:
+        headers = {
+            'Accept': 'application/json',
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Origin': 'https://threadster.app',
+            'Referer': 'https://threadster.app/',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        
+        data = {'url': url}
+        
+        response = requests.post('https://threadster.app/api/download', headers=headers, data=data, timeout=10)
+        response.raise_for_status()
+        
+        json_data = response.json()
+        
+        if not json_data.get('success'):
+            return {'success': False, 'message': 'Gagal mengambil data dari Threads'}
+        
+        result = {
+            'success': True,
+            'platform': 'Threads',
+            'type': json_data.get('type', 'video'),
+            'media': json_data.get('media', [])
+        }
+        
+        return result
+        
+    except Exception as e:
+        return {'success': False, 'message': f'Error Threads: {str(e)}'}
+
+async def handle_downloader(event, client):
+    """Handler utama untuk command /d dan /download"""
     if not event.is_private:
         return
     
@@ -635,7 +851,7 @@ async def handle_download_command(event, client):
         return
     
     # Ambil input dari command atau reply
-    input_text = event.pattern_match.group(2).strip()
+    input_text = event.pattern_match.group(2).strip() if event.pattern_match.group(2) else ''
     
     if not input_text:
         if event.is_reply:
@@ -643,109 +859,290 @@ async def handle_download_command(event, client):
             if reply and reply.message:
                 input_text = reply.message.strip()
             else:
-                await event.reply("❌ Pesan balasan tidak berisi teks.")
+                await event.reply("❌ Pesan balasan tidak berisi link.")
                 return
         else:
-            await event.reply("❌ Kirim link untuk didownload.\n\nContoh: `/d https://tiktok.com/...`")
+            await event.reply(
+                "❌ **Cara pakai:**\n"
+                "`/d <link>` atau `/download <link>`\n"
+                "atau reply pesan yang berisi link\n\n"
+                "**Platform support:**\n"
+                "• TikTok\n• Instagram\n• Facebook\n"
+                "• Pinterest\n• Spotify\n• Threads"
+            )
             return
     
-    # Extract URLs dari input
-    urls = URL_REGEX.findall(input_text)
-    
-    if not urls:
-        await event.reply("❌ Tidak ditemukan link valid.")
+    # Validasi URL
+    if not is_valid_url(input_text):
+        await event.reply("❌ Input bukan link yang valid!")
         return
     
-    # Filter URLs yang didukung
-    supported_urls = []
-    for url in urls:
-        platform = detect_platform(url)
-        if platform:
-            supported_urls.append((url, platform))
+    # Sanitize dan deteksi platform
+    clean_url = sanitize_url(input_text)
+    platform = detect_platform(clean_url)
     
-    if not supported_urls:
-        await event.reply(
-            "❌ Platform tidak didukung.\n\n"
-            "Platform yang didukung:\n"
-            "• TikTok\n"
-            "• Instagram\n"
-            "• Facebook\n"
-            "• Pinterest\n"
-            "• Spotify\n"
-            "• Threads"
-        )
+    if not platform:
+        await event.reply("❌ Platform tidak didukung. Gunakan link dari TikTok, Instagram, Facebook, Pinterest, Spotify, atau Threads.")
         return
     
-    # Process setiap URL
-    loading = await event.reply(f"⏳ Mendownload {len(supported_urls)} link...")
+    # Kirim loading message
+    loading = await event.reply(f"⏳ Mengunduh dari **{platform.title()}**...")
     
-    for url, platform in supported_urls:
-        try:
-            # Update loading message
-            await loading.edit(f"⏳ Mendownload dari **{platform}**...")
-            
-            # Download
-            result = await download_with_ytdlp(url, platform)
-            
-            if not result['success']:
-                await event.reply(f"❌ Gagal download dari {platform}: {result['error']}")
-                continue
-            
-            files = result['files']
-            
-            if not files:
-                await event.reply(f"❌ Tidak ada file dari {platform}")
-                continue
-            
-            # Kategorikan file
-            photos, videos = categorize_files(files)
-            
-            # Pilih video terbaik jika ada beberapa (ambil yang terbesar)
-            if len(videos) > 1:
-                videos = [max(videos, key=lambda f: os.path.getsize(f))]
-            
-            # Gabungkan foto dan video untuk media group
-            media_files = photos + videos
-            
-            # Kirim media
-            caption = f"📥 **Download dari {platform}**\n🔗 {url}"
-            
-            if len(media_files) > 1:
-                # Kirim sebagai media group (album)
-                await client.send_file(
-                    event.chat_id,
-                    media_files,
-                    caption=caption,
-                    force_document=False
-                )
-            elif len(media_files) == 1:
-                # Kirim single file
-                await client.send_file(
-                    event.chat_id,
-                    media_files[0],
-                    caption=caption,
-                    force_document=False
-                )
-            else:
-                await event.reply(f"⚠️ Tidak ada media yang bisa dikirim dari {platform}")
-            
-            # Hapus file temporary
-            for f in files:
-                try:
-                    if os.path.exists(f):
-                        os.remove(f)
-                except:
-                    pass
-                    
-        except Exception as e:
-            await event.reply(f"🚨 Error download {platform}: `{e}`")
-    
-    # Hapus loading message
     try:
-        await loading.delete()
-    except:
-        pass
-
+        # Panggil handler sesuai platform
+        if platform == 'tiktok':
+            result = await download_tiktok(clean_url)
+        elif platform == 'instagram':
+            result = await download_instagram(clean_url)
+        elif platform == 'facebook':
+            result = await download_facebook(clean_url)
+        elif platform == 'pinterest':
+            result = await download_pinterest(clean_url)
+        elif platform == 'spotify':
+            result = await download_spotify(clean_url)
+        elif platform == 'threads':
+            result = await download_threads(clean_url)
+        else:
+            await loading.edit("❌ Platform belum didukung")
+            return
+        
+        # Hapus loading message
+        try:
+            await loading.delete()
+        except:
+            pass
+        
+        # Proses hasil
+        if not result.get('success'):
+            await event.reply(f"❌ {result.get('message', 'Gagal mengunduh')}")
+            return
+        
+        if result['type'] == 'video':
+            if platform == 'tiktok':
+                # Gunakan fungsi get_best_video_url untuk memilih kualitas terbaik
+                video_url = get_best_video_url(result['video'], platform='tiktok')
+                
+                if video_url:
+                    caption = (
+                        f"📹 **TikTok Video**\n\n"
+                        f"👤 @{result['author']['username']}\n"
+                        f"📝 {result['title'][:100]}...\n"
+                        f"👁 {result['stats']['views']:,} views"
+                    )
+                    
+                    try:
+                        # Download video
+                        video_res = requests.get(video_url, timeout=30)
+                        if video_res.status_code == 200:
+                            filename = f"tiktok_{datetime.now().timestamp()}.mp4"
+                            with open(filename, 'wb') as f:
+                                f.write(video_res.content)
+                            
+                            await client.send_file(event.chat_id, filename, caption=caption)
+                            
+                            try:
+                                os.remove(filename)
+                            except:
+                                pass
+                        else:
+                            await event.reply(f"{caption}\n\n🔗 [Download]({video_url})")
+                    except:
+                        await event.reply(f"{caption}\n\n🔗 [Download]({video_url})")
+                else:
+                    await event.reply("❌ Video URL tidak ditemukan")
+                    
+            elif platform == 'instagram':
+                video_urls = result['video'][:10]
+                if len(video_urls) > 1:
+                    files = []
+                    for idx, video_url in enumerate(video_urls):
+                        try:
+                            video_res = requests.get(video_url, timeout=30)
+                            if video_res.status_code == 200:
+                                filename = f"instagram_video_{idx}_{datetime.now().timestamp()}.mp4"
+                                with open(filename, 'wb') as f:
+                                    f.write(video_res.content)
+                                files.append(filename)
+                        except:
+                            pass
+                    
+                    if files:
+                        caption = f"📹 **Instagram Videos** ({len(files)} video)"
+                        await client.send_file(event.chat_id, files, caption=caption)
+                        
+                        for f in files:
+                            try:
+                                os.remove(f)
+                            except:
+                                pass
+                elif len(video_urls) == 1:
+                    try:
+                        video_res = requests.get(video_urls[0], timeout=30)
+                        if video_res.status_code == 200:
+                            filename = f"instagram_{datetime.now().timestamp()}.mp4"
+                            with open(filename, 'wb') as f:
+                                f.write(video_res.content)
+                            
+                            await client.send_file(event.chat_id, filename, caption="📹 **Instagram Video**")
+                            
+                            try:
+                                os.remove(filename)
+                            except:
+                                pass
+                        else:
+                            await event.reply(f"📹 **Instagram Video**\n\n🔗 [Download]({video_urls[0]})")
+                    except:
+                        await event.reply(f"📹 **Instagram Video**\n\n🔗 [Download]({video_urls[0]})")
+                        
+            elif platform == 'facebook':
+                videos = result['videos']
+                best_video = None
+                
+                for video in videos:
+                    if video['quality'] == 'HD':
+                        best_video = video
+                        break
+                
+                if not best_video and videos:
+                    best_video = videos[0]
+                
+                if best_video:
+                    await event.reply(f"📹 **Facebook Video ({best_video['quality']})**\n\n🔗 [Download]({best_video['url']})")
+                        
+            elif platform == 'threads':
+                media_urls = result['media'][:10]
+                if len(media_urls) > 1:
+                    files = []
+                    for idx, media_url in enumerate(media_urls):
+                        try:
+                            full_url = f"https://threadster.app{media_url}" if not media_url.startswith('http') else media_url
+                            media_res = requests.get(full_url, timeout=30)
+                            if media_res.status_code == 200:
+                                filename = f"threads_video_{idx}_{datetime.now().timestamp()}.mp4"
+                                with open(filename, 'wb') as f:
+                                    f.write(media_res.content)
+                                files.append(filename)
+                        except:
+                            pass
+                    
+                    if files:
+                        caption = f"📹 **Threads Videos** ({len(files)} video)"
+                        await client.send_file(event.chat_id, files, caption=caption)
+                        
+                        for f in files:
+                            try:
+                                os.remove(f)
+                            except:
+                                pass
+                elif len(media_urls) == 1:
+                    full_url = f"https://threadster.app{media_urls[0]}" if not media_urls[0].startswith('http') else media_urls[0]
+                    await event.reply(f"📹 **Threads Video**\n\n🔗 [Download]({full_url})")
+        
+        elif result['type'] == 'images':
+            if platform == 'tiktok':
+                image_urls = result['images'][:10]
+                caption = (
+                    f"🖼 **TikTok Images** ({len(image_urls)} foto)\n\n"
+                    f"👤 @{result['author']['username']}\n"
+                    f"📝 {result['title'][:100]}..."
+                )
+                
+                files = []
+                for idx, img_url in enumerate(image_urls):
+                    try:
+                        img_res = requests.get(img_url, timeout=10)
+                        if img_res.status_code == 200:
+                            filename = f"tiktok_img_{idx}_{datetime.now().timestamp()}.jpg"
+                            with open(filename, 'wb') as f:
+                                f.write(img_res.content)
+                            files.append(filename)
+                    except:
+                        pass
+                
+                if files:
+                    await client.send_file(event.chat_id, files, caption=caption)
+                    for f in files:
+                        try:
+                            os.remove(f)
+                        except:
+                            pass
+                            
+            elif platform == 'instagram':
+                image_urls = result['images'][:10]
+                
+                if len(image_urls) > 1:
+                    files = []
+                    for idx, img_url in enumerate(image_urls):
+                        try:
+                            img_res = requests.get(img_url, timeout=10)
+                            if img_res.status_code == 200:
+                                filename = f"instagram_img_{idx}_{datetime.now().timestamp()}.jpg"
+                                with open(filename, 'wb') as f:
+                                    f.write(img_res.content)
+                                files.append(filename)
+                        except:
+                            pass
+                    
+                    if files:
+                        caption = f"🖼 **Instagram Images** ({len(files)} foto)"
+                        await client.send_file(event.chat_id, files, caption=caption)
+                        
+                        for f in files:
+                            try:
+                                os.remove(f)
+                            except:
+                                pass
+                elif len(image_urls) == 1:
+                    await event.reply(f"🖼 **Instagram Image**\n\n🔗 [Download]({image_urls[0]})")
+                    
+            elif platform == 'threads':
+                media_urls = result['media'][:10]
+                
+                if len(media_urls) > 1:
+                    files = []
+                    for idx, media_url in enumerate(media_urls):
+                        try:
+                            full_url = f"https://threadster.app{media_url}" if not media_url.startswith('http') else media_url
+                            img_res = requests.get(full_url, timeout=10)
+                            if img_res.status_code == 200:
+                                filename = f"threads_img_{idx}_{datetime.now().timestamp()}.jpg"
+                                with open(filename, 'wb') as f:
+                                    f.write(img_res.content)
+                                files.append(filename)
+                        except:
+                            pass
+                    
+                    if files:
+                        caption = f"🖼 **Threads Images** ({len(files)} foto)"
+                        await client.send_file(event.chat_id, files, caption=caption)
+                        
+                        for f in files:
+                            try:
+                                os.remove(f)
+                            except:
+                                pass
+                elif len(media_urls) == 1:
+                    full_url = f"https://threadster.app{media_urls[0]}" if not media_urls[0].startswith('http') else media_urls[0]
+                    await event.reply(f"🖼 **Threads Image**\n\n🔗 [Download]({full_url})")
+        
+        elif result['type'] == 'audio':
+            caption = f"🎵 **Spotify Audio**\n\n🔗 [Download]({result['url']})"
+            if not result.get('cached'):
+                caption += "\n\n⚠️ File sedang disiapkan, coba lagi dalam beberapa detik"
+            await event.reply(caption)
+        
+        else:
+            if 'url' in result:
+                await event.reply(f"📥 **{platform.title()}**\n\n🔗 [Download]({result['url']})")
+            else:
+                await event.reply("✅ Media berhasil diproses!")
+        
+    except Exception as e:
+        try:
+            await loading.delete()
+        except:
+            pass
+        await event.reply(f"🚨 Error: `{str(e)}`")
 
 # ========== BAGIAN 3 ==========
 # WEB SERVER, RESTART LOOP, MAIN + HANDLER
@@ -819,9 +1216,9 @@ async def main():
 
         # === DOWNLOADER ===
         if "downloader" in acc["features"]:
-            @client.on(events.NewMessage(pattern=r'^/(download|d)(?:\s+|$)(.*)'))
-            async def download_handler(event, c=client):
-                await handle_download_command(event, c)
+            @client.on(events.NewMessage(pattern=r'^/(d|download)(?:\s+|$)(.*)'))
+            async def downloader_handler(event, c=client):
+                await handle_downloader(event, c)
 
         # === CLEAR CHANNEL (KHUSUS CHANNEL) ===
         if "clearch" in acc["features"]:
