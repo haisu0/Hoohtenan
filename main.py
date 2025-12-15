@@ -416,6 +416,10 @@ async def main():
         if "save_media" in acc["features"]:
             @client.on(events.NewMessage(pattern=r'^/(save|s)(?:\s+|$)(.*)'))
             async def save_handler(event, c=client):
+                me = await c.get_me()
+                if event.sender_id != me.id:
+                    await event.reply("🚫 Fitur ini hanya bisa digunakan oleh ubot sendiri.")
+                    return
                 await handle_save_command(event, c)
 
         # Info restart
