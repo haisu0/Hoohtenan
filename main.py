@@ -416,12 +416,6 @@ async def main():
         if "save_media" in acc["features"]:
             @client.on(events.NewMessage(pattern=r'^/(save|s)(?:\s+|$)(.*)'))
             async def save_handler(event, c=client):
-                if not event.is_private:
-                    return
-                
-                me = await c.get_me()
-                if event.sender_id != me.id:
-                    return
                 await handle_save_command(event, c)
 
         # Info restart
