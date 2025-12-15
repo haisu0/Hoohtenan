@@ -460,6 +460,15 @@ async def whois_handler(event, client):
     reply = await event.get_reply_message()
     user = await client.get_entity(reply.sender_id)
 
+    # Ambil info lengkap user
+    try:
+        full = await client(GetFullUserRequest(user.id))
+        bio = full.about or "-"
+        common_chats = full.common_chats_count
+    except Exception:
+        bio = "-"
+        common_chats = "-"
+
     text = (
         f"👤 **WHOIS USER**\n\n"
         f"🆔 ID: `{user.id}`\n"
@@ -467,8 +476,11 @@ async def whois_handler(event, client):
         f"🔗 Username: @{user.username if user.username else '-'}\n"
         f"⭐ Premium: {'Ya' if getattr(user, 'premium', False) else 'Tidak'}\n"
         f"🤖 Bot: {'Ya' if user.bot else 'Tidak'}\n"
+        f"📖 Bio: {bio}\n"
+        f"💬 Common Chats: {common_chats}\n"
+        f"🌍 Bahasa: {getattr(user, 'lang_code', '-')}\n"
+        f"☎️ Nomor: {getattr(user, 'phone', '-')}\n"
     )
-
     try:
         photo = await client.download_profile_photo(user.id)
         await client.send_file(event.chat_id, photo, caption=text)
