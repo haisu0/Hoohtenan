@@ -13,10 +13,10 @@ from flask import Flask
 from threading import Thread
 from telethon.tl.functions.users import GetFullUserRequest
 
-import requests
+import httpx
 from bs4 import BeautifulSoup
-from urllib.parse import urlparse, urlencode
-import json
+import yt_dlp
+import mimetypes
 
 # === KONFIGURASI UTAMA ===
 API_ID = 20958475
@@ -46,7 +46,7 @@ ACCOUNTS = [
             "clearch",
             "whois",
             "autopin",
-            "downloader",
+            "downloader",  # Tambah fitur downloader
         ],
         "scheduled_targets": [
             {
@@ -511,8 +511,9 @@ async def autopin_handler(event, client, keywords):
             pass
 
 
+# === FITUR: DOWNLOADER (MULTI PLATFORM) ===
 
-# Regex pattern untuk deteksi platform
+# Pattern untuk cek platform
 PLATFORM_PATTERNS = {
     "TikTok": re.compile(r'(?:^|\.)tiktok\.com', re.IGNORECASE),
     "Instagram": re.compile(r'(?:^|\.)instagram\.com|instagr\.am', re.IGNORECASE),
@@ -522,13 +523,12 @@ PLATFORM_PATTERNS = {
     "Threads": re.compile(r'(?:^|\.)threads\.(net|com)', re.IGNORECASE),
 }
 
-def is_valid_url(url):
-    """Validasi URL"""
-    try:
-        result = urlparse(url)
-        return all([result.scheme in ['http', 'https'], result.netloc])
-    except:
-        return False
+# Regex untuk extract URL
+URL_REGEX = re.compile(
+    r'https?://(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&/=]*)',
+    re.IGNORECASE
+)
+
 
 def detect_platform(url):
     """Deteksi platform dari URL"""
@@ -537,275 +537,93 @@ def detect_platform(url):
             return platform
     return None
 
-def sanitize_url(url):
-    """Bersihkan URL dari tracking parameters"""
-    try:
-        parsed = urlparse(url)
-        return f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
-    except:
-        return url
 
-async def download_tiktok(url):
-    """Download TikTok video/foto"""
+async def download_with_ytdlp(url, platform):
+    """Download media menggunakan yt-dlp"""
     try:
-        api_url = "https://www.tikwm.com/api/"
-        headers = {
-            'Accept': 'application/json, text/javascript, */*; q=0.01',
-            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-            'Origin': 'https://www.tikwm.com',
-            'Referer': 'https://www.tikwm.com/',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-        data = {'url': url, 'hd': '1'}
+        # Konfigurasi yt-dlp
+        download_folder = "downloads_temp"
+        os.makedirs(download_folder, exist_ok=True)
         
-        response = requests.post(api_url, headers=headers, data=data, timeout=15)
-        response.raise_for_status()
-        
-        result = response.json()
-        if result.get('code') != 0:
-            return None, "Gagal mengambil data dari TikTok"
-        
-        res = result.get('data', {})
-        
-        # Deteksi tipe konten
-        if res.get('images'):
-            # Foto/slideshow
-            return {
-                'type': 'foto',
-                'items': res['images'],
-                'caption': res.get('title', '')
-            }, None
-        else:
-            # Video - prioritas: HD → No Watermark → Watermark
-            video_url = res.get('hdplay') or res.get('play') or res.get('wmplay')
-            if not video_url:
-                return None, "Tidak dapat menemukan URL video"
-            
-            return {
-                'type': 'video',
-                'items': [video_url],
-                'caption': res.get('title', '')
-            }, None
-            
-    except Exception as e:
-        return None, f"Error TikTok: {str(e)}"
-
-async def download_instagram(url):
-    """Download Instagram video/foto"""
-    try:
-        api_url = f"https://v3.saveig.app/api/ajaxSearch"
-        headers = {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-        data = {'q': url, 't': 'media', 'lang': 'en'}
-        
-        response = requests.post(api_url, headers=headers, data=data, timeout=15)
-        response.raise_for_status()
-        
-        result = response.json()
-        html = result.get('data', '')
-        
-        if not html:
-            return None, "Tidak ada data dari Instagram"
-        
-        soup = BeautifulSoup(html, 'html.parser')
-        
-        videos = []
-        photos = []
-        
-        # Extract media links
-        for link in soup.find_all('a', href=True):
-            href = link['href']
-            title = link.get('title', '').lower()
-            
-            if title and href.startswith('http'):
-                if 'video' in title:
-                    videos.append(href)
-                elif 'foto' in title or 'image' in title:
-                    photos.append(href)
-        
-        if videos and photos:
-            # Ada video dan foto
-            return {
-                'type': 'mixed',
-                'items': videos + photos,
-                'caption': ''
-            }, None
-        elif videos:
-            return {
-                'type': 'video',
-                'items': videos,
-                'caption': ''
-            }, None
-        elif photos:
-            return {
-                'type': 'foto',
-                'items': photos,
-                'caption': ''
-            }, None
-        else:
-            return None, "Tidak dapat menemukan media"
-            
-    except Exception as e:
-        return None, f"Error Instagram: {str(e)}"
-
-async def download_facebook(url):
-    """Download Facebook video"""
-    try:
-        api_url = "https://www.getfvid.com/downloader"
-        headers = {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-        data = {'url': url}
-        
-        response = requests.post(api_url, headers=headers, data=data, timeout=15)
-        response.raise_for_status()
-        
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # Cari download links
-        download_links = []
-        for link in soup.find_all('a', href=True):
-            href = link['href']
-            text = link.get_text().strip()
-            
-            if href.startswith('http') and ('Download' in text or 'HD' in text or 'SD' in text):
-                quality = 'HD' if 'HD' in text else 'SD'
-                download_links.append({'url': href, 'quality': quality})
-        
-        if not download_links:
-            return None, "Tidak dapat menemukan video"
-        
-        # Prioritas HD
-        best_video = next((v for v in download_links if v['quality'] == 'HD'), download_links[0])
-        
-        return {
-            'type': 'video',
-            'items': [best_video['url']],
-            'caption': ''
-        }, None
-        
-    except Exception as e:
-        return None, f"Error Facebook: {str(e)}"
-
-async def download_pinterest(url):
-    """Download Pinterest video/foto"""
-    try:
-        api_url = f"https://www.pinterestvideodownloader.com/download.php?url={url}"
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        ydl_opts = {
+            'outtmpl': f'{download_folder}/%(id)s.%(ext)s',
+            'quiet': True,
+            'no_warnings': True,
+            'format': 'best',  # Pilih kualitas terbaik
+            'nocheckcertificate': True,
         }
         
-        response = requests.get(api_url, headers=headers, timeout=15)
-        response.raise_for_status()
+        # Konfigurasi khusus per platform
+        if platform == "Instagram":
+            ydl_opts['format'] = 'best'
+        elif platform == "TikTok":
+            ydl_opts['format'] = 'best'
+        elif platform == "Facebook":
+            ydl_opts['format'] = 'best'
         
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        videos = []
-        images = []
-        
-        # Extract media links
-        for link in soup.find_all('a', href=True):
-            href = link['href']
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
             
-            if href.startswith('http'):
-                if '.mp4' in href:
-                    videos.append(href)
-                elif '.jpg' in href or '.png' in href:
-                    images.append(href)
+            # Cek apakah ada multiple entries (playlist/album)
+            if 'entries' in info:
+                entries = list(info['entries'])
+                files = []
+                
+                for entry in entries:
+                    if entry:
+                        filepath = ydl.prepare_filename(entry)
+                        if os.path.exists(filepath):
+                            files.append(filepath)
+                
+                return {
+                    'success': True,
+                    'platform': platform,
+                    'files': files,
+                    'type': 'multiple',
+                    'title': info.get('title', 'Media'),
+                }
+            else:
+                # Single file
+                filepath = ydl.prepare_filename(info)
+                
+                if os.path.exists(filepath):
+                    return {
+                        'success': True,
+                        'platform': platform,
+                        'files': [filepath],
+                        'type': 'single',
+                        'title': info.get('title', 'Media'),
+                    }
         
-        if videos:
-            return {
-                'type': 'video',
-                'items': [videos[0]],
-                'caption': ''
-            }, None
-        elif images:
-            return {
-                'type': 'foto',
-                'items': [images[0]],
-                'caption': ''
-            }, None
-        else:
-            return None, "Tidak dapat menemukan media"
-            
+        return {'success': False, 'error': 'File tidak ditemukan setelah download'}
+        
     except Exception as e:
-        return None, f"Error Pinterest: {str(e)}"
+        return {'success': False, 'error': str(e)}
 
-async def download_threads(url):
-    """Download Threads video/foto"""
-    try:
-        api_url = f"https://threadster.app/download"
-        headers = {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-        data = {'url': url}
-        
-        response = requests.post(api_url, headers=headers, data=data, timeout=15)
-        response.raise_for_status()
-        
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        videos = []
-        photos = []
-        
-        # Extract media dari table
-        for row in soup.find_all('tr'):
-            link = row.find('a', href=True)
-            if link:
-                href = link['href']
-                if '/threadster/video?' in href:
-                    videos.append(href)
-                elif '/threadster/image?' in href:
-                    photos.append(href)
-        
-        if videos and photos:
-            return {
-                'type': 'mixed',
-                'items': videos + photos,
-                'caption': ''
-            }, None
-        elif videos:
-            return {
-                'type': 'video',
-                'items': videos,
-                'caption': ''
-            }, None
-        elif photos:
-            return {
-                'type': 'foto',
-                'items': photos,
-                'caption': ''
-            }, None
-        else:
-            return None, "Tidak dapat menemukan media"
-            
-    except Exception as e:
-        return None, f"Error Threads: {str(e)}"
 
-async def download_spotify(url):
-    """Spotify tidak support download, hanya return info"""
-    return None, "Spotify tidak mendukung download. Platform ini hanya untuk streaming musik."
-
-async def process_download(url, platform):
-    """Process download berdasarkan platform"""
-    handlers = {
-        'TikTok': download_tiktok,
-        'Instagram': download_instagram,
-        'Facebook': download_facebook,
-        'Pinterest': download_pinterest,
-        'Threads': download_threads,
-        'Spotify': download_spotify
-    }
+def categorize_files(files):
+    """Kategorikan file menjadi foto dan video"""
+    photos = []
+    videos = []
     
-    handler = handlers.get(platform)
-    if not handler:
-        return None, f"Platform {platform} tidak didukung"
+    for filepath in files:
+        mime_type, _ = mimetypes.guess_type(filepath)
+        
+        if mime_type:
+            if mime_type.startswith('image'):
+                photos.append(filepath)
+            elif mime_type.startswith('video'):
+                videos.append(filepath)
+        else:
+            # Fallback ke ekstensi file
+            ext = os.path.splitext(filepath)[1].lower()
+            if ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp']:
+                photos.append(filepath)
+            elif ext in ['.mp4', '.mov', '.avi', '.mkv', '.webm']:
+                videos.append(filepath)
     
-    return await handler(url)
+    return photos, videos
+
 
 async def handle_download_command(event, client):
     """Handler untuk command /d dan /download"""
@@ -825,107 +643,109 @@ async def handle_download_command(event, client):
             if reply and reply.message:
                 input_text = reply.message.strip()
             else:
-                await event.reply("❌ Pesan balasan tidak berisi link.")
+                await event.reply("❌ Pesan balasan tidak berisi teks.")
                 return
         else:
-            await event.reply("❌ Gunakan: `/d <link>` atau reply pesan yang berisi link.")
+            await event.reply("❌ Kirim link untuk didownload.\n\nContoh: `/d https://tiktok.com/...`")
             return
     
-    # Validasi URL
-    if not is_valid_url(input_text):
-        await event.reply("❌ Format link tidak valid. Gunakan link lengkap dengan http:// atau https://")
+    # Extract URLs dari input
+    urls = URL_REGEX.findall(input_text)
+    
+    if not urls:
+        await event.reply("❌ Tidak ditemukan link valid.")
         return
     
-    # Deteksi platform
-    platform = detect_platform(input_text)
-    if not platform:
-        supported = ", ".join(PLATFORM_PATTERNS.keys())
-        await event.reply(f"❌ Platform tidak didukung.\n\n✅ Platform yang didukung:\n{supported}")
+    # Filter URLs yang didukung
+    supported_urls = []
+    for url in urls:
+        platform = detect_platform(url)
+        if platform:
+            supported_urls.append((url, platform))
+    
+    if not supported_urls:
+        await event.reply(
+            "❌ Platform tidak didukung.\n\n"
+            "Platform yang didukung:\n"
+            "• TikTok\n"
+            "• Instagram\n"
+            "• Facebook\n"
+            "• Pinterest\n"
+            "• Spotify\n"
+            "• Threads"
+        )
         return
     
-    # Sanitize URL
-    clean_url = sanitize_url(input_text)
+    # Process setiap URL
+    loading = await event.reply(f"⏳ Mendownload {len(supported_urls)} link...")
     
-    # Loading message
-    loading_msg = await event.reply(f"⏳ Mengunduh dari {platform}...\n🔗 {clean_url}")
-    
-    try:
-        # Process download
-        result, error = await process_download(clean_url, platform)
-        
-        if error or not result:
-            await loading_msg.edit(f"❌ {error or 'Gagal mengunduh media'}")
-            return
-        
-        # Download files ke temporary folder
-        temp_folder = "temp_downloads"
-        os.makedirs(temp_folder, exist_ok=True)
-        
-        downloaded_files = []
-        
-        for idx, url in enumerate(result['items']):
-            try:
-                # Download file
-                file_response = requests.get(url, timeout=30, stream=True)
-                file_response.raise_for_status()
-                
-                # Tentukan ekstensi file
-                content_type = file_response.headers.get('content-type', '')
-                if 'video' in content_type or url.endswith('.mp4'):
-                    ext = 'mp4'
-                elif 'image' in content_type or url.endswith(('.jpg', '.jpeg', '.png')):
-                    ext = 'jpg'
-                else:
-                    ext = 'jpg'  # default
-                
-                # Save file
-                filename = f"{temp_folder}/media_{idx}.{ext}"
-                with open(filename, 'wb') as f:
-                    for chunk in file_response.iter_content(chunk_size=8192):
-                        f.write(chunk)
-                
-                downloaded_files.append(filename)
-            except Exception as e:
-                print(f"Error downloading {url}: {e}")
-                continue
-        
-        if not downloaded_files:
-            await loading_msg.edit("❌ Gagal mengunduh media dari link")
-            return
-        
-        # Kirim media
-        caption = f"✅ {platform}\n\n{result.get('caption', '')}" if result.get('caption') else f"✅ Downloaded from {platform}"
-        
-        if len(downloaded_files) > 1:
-            # Kirim sebagai media group
-            await client.send_file(
-                event.chat_id,
-                downloaded_files,
-                caption=caption
-            )
-        else:
-            # Kirim single file
-            await client.send_file(
-                event.chat_id,
-                downloaded_files[0],
-                caption=caption
-            )
-        
-        # Hapus loading message
+    for url, platform in supported_urls:
         try:
-            await loading_msg.delete()
-        except:
-            pass
-        
-        # Cleanup files
-        for file in downloaded_files:
-            try:
-                os.remove(file)
-            except:
-                pass
-        
-    except Exception as e:
-        await loading_msg.edit(f"🚨 Error: `{str(e)}`")
+            # Update loading message
+            await loading.edit(f"⏳ Mendownload dari **{platform}**...")
+            
+            # Download
+            result = await download_with_ytdlp(url, platform)
+            
+            if not result['success']:
+                await event.reply(f"❌ Gagal download dari {platform}: {result['error']}")
+                continue
+            
+            files = result['files']
+            
+            if not files:
+                await event.reply(f"❌ Tidak ada file dari {platform}")
+                continue
+            
+            # Kategorikan file
+            photos, videos = categorize_files(files)
+            
+            # Pilih video terbaik jika ada beberapa (ambil yang terbesar)
+            if len(videos) > 1:
+                videos = [max(videos, key=lambda f: os.path.getsize(f))]
+            
+            # Gabungkan foto dan video untuk media group
+            media_files = photos + videos
+            
+            # Kirim media
+            caption = f"📥 **Download dari {platform}**\n🔗 {url}"
+            
+            if len(media_files) > 1:
+                # Kirim sebagai media group (album)
+                await client.send_file(
+                    event.chat_id,
+                    media_files,
+                    caption=caption,
+                    force_document=False
+                )
+            elif len(media_files) == 1:
+                # Kirim single file
+                await client.send_file(
+                    event.chat_id,
+                    media_files[0],
+                    caption=caption,
+                    force_document=False
+                )
+            else:
+                await event.reply(f"⚠️ Tidak ada media yang bisa dikirim dari {platform}")
+            
+            # Hapus file temporary
+            for f in files:
+                try:
+                    if os.path.exists(f):
+                        os.remove(f)
+                except:
+                    pass
+                    
+        except Exception as e:
+            await event.reply(f"🚨 Error download {platform}: `{e}`")
+    
+    # Hapus loading message
+    try:
+        await loading.delete()
+    except:
+        pass
+
 
 # ========== BAGIAN 3 ==========
 # WEB SERVER, RESTART LOOP, MAIN + HANDLER
@@ -997,8 +817,9 @@ async def main():
             async def save_handler(event, c=client):
                 await handle_save_command(event, c)
 
+        # === DOWNLOADER ===
         if "downloader" in acc["features"]:
-            @client.on(events.NewMessage(pattern=r'^/(d|download)(?:\s+|$)(.*)'))
+            @client.on(events.NewMessage(pattern=r'^/(download|d)(?:\s+|$)(.*)'))
             async def download_handler(event, c=client):
                 await handle_download_command(event, c)
 
