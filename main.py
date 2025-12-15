@@ -466,7 +466,7 @@ async def whois_handler(event, client):
         f"🆔 ID: `{user.id}`\n"
         f"👥 Nama: {user.first_name or '-'} {user.last_name or ''}\n"
         f"🔗 Username: @{user.username if user.username else '-'}\n"
-        f"📖 Bio: {user.about or '-'}\n"
+        f"📖 Bio: {user.about}\n"
         f"⭐ Premium: {'Ya' if getattr(user, 'premium', False) else 'Tidak'}\n"
         f"🤖 Bot: {'Ya' if user.bot else 'Tidak'}\n"
     )
