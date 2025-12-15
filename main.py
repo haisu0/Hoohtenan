@@ -52,28 +52,7 @@ ACCOUNTS = [
         "spam_triggers": ["bebih", "babe", "baby"],
         # kata kunci auto-pin khusus akun ini (private chat only)
         "autopin_keywords": ["al azet", "al_azet", "al-azet"],
-    },
-    {
-        "session": "1BVtsOGkBu2ip64VAo2MvXJI_g-QkEaYJDaPN2vdLJ1DYy2XU2b-g2s6E_8589ISE61oRvN_sHi_eCRqH4McgMdvkvwJin6XvF1lTQNOHRvnOEcJxiuXZO92nnZmSeo1ntevPs8DPbvqjQ7tRH7mLNpdmGdAzKMtUqjmF0H0S0VGZKImS8k_wvdv2ZwJIUM5kxWDExRX_W__t6rTxNPJ_Umv45-w3DeqwlSpXGhuiLC6MqWwJ03f6YLAhO6hk6UuuLMY7xBd1NEtAsCnXwzJFhAXeO6k_qaffZO5zToPPLdGKSOsZKnZosn3YWMUXzMcFhPmaWIIuMDMJkhPV1lQMkF4LUUxpX90=",
-        "log_channel": None,
-        "log_admin": 7828063345,
-        "features": [
-            "anti_view_once",
-            "ping",
-            "heartbeat",
-            "scheduled_message",
-            # contoh: akun ini tidak pakai spam_forward, clearch, whois, autopin
-        ],
-        "scheduled_targets": [
-            {
-                "chat_id": 1488611909,
-                "text_pagi": "☀️ Selamat Pagi 🌄 🌅",
-                "text_malam": "🌑 🌕 Selamat Malam 🌌",
-            }
-        ],
-        "spam_triggers": None,
-        "autopin_keywords": None,
-    },
+    }
 ]
 
 # list global client (diisi di main)
@@ -475,6 +454,7 @@ async def whois_handler(event, client):
         f"📖 Bio: {bio}\n"
         f"⭐ Premium: {'Ya' if getattr(user, 'premium', False) else 'Tidak'}\n"
         f"🤖 Bot: {'Ya' if user.bot else 'Tidak'}\n"
+        f"☎️ Nomor: {getattr(user, 'phone', '-')}\n"
     )
     
     try:
