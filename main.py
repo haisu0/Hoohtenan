@@ -206,7 +206,7 @@ async def scheduled_message(client, targets, akun_nama):
         now = datetime.now(ZoneInfo("Asia/Jakarta"))
         today = now.date()
 
-        if now.hour == 6 and now.minute == 0:
+        if now.hour == 7 and now.minute == 40:
             if last_sent_date_pagi != today:
                 for target in targets:
                     try:
