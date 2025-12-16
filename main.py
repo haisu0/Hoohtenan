@@ -837,29 +837,40 @@ async def handle_downloader(event, client):
                         pass  # Silent fail for audio
                         
             elif result['type'] == 'images':
-                # TikTok slideshow/images
+                total_images = len(result['images'])
                 caption = (
-                    f"🖼 **TikTok Slideshow** ({len(result['images'])} foto)\n\n"
+                    f"🖼 **TikTok Slideshow** ({total_images} foto)\n\n"
                     f"👤 **Author:** @{result['author']['username']}\n"
                     f"📝 **Title:** {result['title'][:100]}{'...' if len(result['title']) > 100 else ''}\n"
                     f"👁 **Views:** {result['stats']['views']:,}"
                 )
                 
-                files = []
-                for idx, img_url in enumerate(result['images'][:10], 1):
+                # Download semua gambar
+                all_files = []
+                for idx, img_url in enumerate(result['images'], 1):
                     try:
                         img_res = requests.get(img_url, timeout=20)
                         if img_res.status_code == 200:
                             filename = f"tiktok_img_{int(datetime.now().timestamp())}_{idx}.jpg"
                             with open(filename, 'wb') as f:
                                 f.write(img_res.content)
-                            files.append(filename)
+                            all_files.append(filename)
                     except:
                         pass
                 
-                if files:
-                    await client.send_file(event.chat_id, files, caption=caption)
-                    for f in files:
+                if all_files:
+                    # Split files menjadi chunks of 10
+                    for i in range(0, len(all_files), 10):
+                        chunk = all_files[i:i+10]
+                        is_last_chunk = (i + 10 >= len(all_files))
+                        
+                        # Caption hanya di chunk terakhir
+                        chunk_caption = caption if is_last_chunk else None
+                        
+                        await client.send_file(event.chat_id, chunk, caption=chunk_caption)
+                    
+                    # Hapus semua file
+                    for f in all_files:
                         try:
                             os.remove(f)
                         except:
@@ -902,10 +913,10 @@ async def handle_downloader(event, client):
         # ===== INSTAGRAM HANDLER =====
         elif platform == 'instagram':
             if result['type'] == 'video':
-                # Instagram video only
                 video_items = result['videos']
+                total_videos = len(video_items)
                 
-                if len(video_items) == 1:
+                if total_videos == 1:
                     # Single video - send directly
                     video_url = video_items[0]['url']
                     caption = f"📹 **Instagram Video**"
@@ -925,9 +936,9 @@ async def handle_downloader(event, client):
                     except Exception as e:
                         await event.reply(f"{caption}\n\n🔗 [Download]({video_url})")
                 else:
-                    # Multiple videos - send as media group
-                    files = []
-                    for idx, video_item in enumerate(video_items[:10], 1):
+                    # Multiple videos - download semua
+                    all_files = []
+                    for idx, video_item in enumerate(video_items, 1):
                         try:
                             video_url = video_item['url']
                             video_res = requests.get(video_url, timeout=60, stream=True)
@@ -936,17 +947,23 @@ async def handle_downloader(event, client):
                                 with open(filename, 'wb') as f:
                                     for chunk in video_res.iter_content(chunk_size=8192):
                                         f.write(chunk)
-                                files.append(filename)
+                                all_files.append(filename)
                         except:
                             pass
                     
-                    if files:
-                        await client.send_file(
-                            event.chat_id,
-                            files,
-                            caption=f"📹 **Instagram Videos** ({len(files)} videos)"
-                        )
-                        for f in files:
+                    if all_files:
+                        # Split files menjadi chunks of 10
+                        for i in range(0, len(all_files), 10):
+                            chunk = all_files[i:i+10]
+                            is_last_chunk = (i + 10 >= len(all_files))
+                            
+                            # Caption hanya di chunk terakhir
+                            chunk_caption = f"📹 **Instagram Videos** ({len(all_files)} videos)" if is_last_chunk else None
+                            
+                            await client.send_file(event.chat_id, chunk, caption=chunk_caption)
+                        
+                        # Hapus semua file
+                        for f in all_files:
                             try:
                                 os.remove(f)
                             except:
@@ -957,10 +974,10 @@ async def handle_downloader(event, client):
                             await event.reply(f"📹 **Instagram Video {idx}**\n\n🔗 [Download]({video_item['url']})")
                             
             elif result['type'] == 'images':
-                # Instagram images only
                 image_items = result['images']
+                total_images = len(image_items)
                 
-                if len(image_items) == 1:
+                if total_images == 1:
                     # Single image
                     img_url = image_items[0]['url']
                     caption = f"🖼 **Instagram Image**"
@@ -979,9 +996,9 @@ async def handle_downloader(event, client):
                     except:
                         await event.reply(f"{caption}\n\n🔗 [Download]({img_url})")
                 else:
-                    # Multiple images - send as media group
-                    files = []
-                    for idx, img_item in enumerate(image_items[:10], 1):
+                    # Multiple images - download semua
+                    all_files = []
+                    for idx, img_item in enumerate(image_items, 1):
                         try:
                             img_url = img_item['url']
                             img_res = requests.get(img_url, timeout=20)
@@ -989,17 +1006,23 @@ async def handle_downloader(event, client):
                                 filename = f"instagram_img_{int(datetime.now().timestamp())}_{idx}.jpg"
                                 with open(filename, 'wb') as f:
                                     f.write(img_res.content)
-                                files.append(filename)
+                                all_files.append(filename)
                         except:
                             pass
                     
-                    if files:
-                        await client.send_file(
-                            event.chat_id,
-                            files,
-                            caption=f"🖼 **Instagram Images** ({len(files)} photos)"
-                        )
-                        for f in files:
+                    if all_files:
+                        # Split files menjadi chunks of 10
+                        for i in range(0, len(all_files), 10):
+                            chunk = all_files[i:i+10]
+                            is_last_chunk = (i + 10 >= len(all_files))
+                            
+                            # Caption hanya di chunk terakhir
+                            chunk_caption = f"🖼 **Instagram Images** ({len(all_files)} photos)" if is_last_chunk else None
+                            
+                            await client.send_file(event.chat_id, chunk, caption=chunk_caption)
+                        
+                        # Hapus semua file
+                        for f in all_files:
                             try:
                                 os.remove(f)
                             except:
@@ -1010,11 +1033,12 @@ async def handle_downloader(event, client):
                             await event.reply(f"🖼 **Instagram Image {idx}**\n\n🔗 [Download]({img_item['url']})")
                             
             elif result['type'] == 'mixed':
-                # Instagram mixed media (photos + videos)
                 all_media = result['data']
+                total_media = len(all_media)
                 
-                files = []
-                for idx, media_item in enumerate(all_media[:10], 1):
+                # Download semua media
+                all_files = []
+                for idx, media_item in enumerate(all_media, 1):
                     try:
                         media_url = media_item['url']
                         media_type = media_item['type']
@@ -1031,23 +1055,28 @@ async def handle_downloader(event, client):
                                 else:
                                     f.write(media_res.content)
                             
-                            files.append(filename)
+                            all_files.append(filename)
                     except:
                         pass
                 
-                if files:
-                    video_count = len([m for m in all_media[:len(files)] if m['type'] == 'video'])
-                    photo_count = len(files) - video_count
-                    
+                if all_files:
+                    # Hitung total video dan foto
+                    video_count = len([m for m in all_media[:len(all_files)] if m['type'] == 'video'])
+                    photo_count = len(all_files) - video_count
                     caption = f"📸 **Instagram Media** ({photo_count} photos, {video_count} videos)"
                     
-                    await client.send_file(
-                        event.chat_id,
-                        files,
-                        caption=caption
-                    )
+                    # Split files menjadi chunks of 10
+                    for i in range(0, len(all_files), 10):
+                        chunk = all_files[i:i+10]
+                        is_last_chunk = (i + 10 >= len(all_files))
+                        
+                        # Caption hanya di chunk terakhir
+                        chunk_caption = caption if is_last_chunk else None
+                        
+                        await client.send_file(event.chat_id, chunk, caption=chunk_caption)
                     
-                    for f in files:
+                    # Hapus semua file
+                    for f in all_files:
                         try:
                             os.remove(f)
                         except:
