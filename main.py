@@ -17,8 +17,6 @@ import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, parse_qs, urlencode, unquote
 from telethon import types
-from PIL import Image
-import subprocess
 
 # === KONFIGURASI UTAMA ===
 API_ID = 20958475
@@ -501,34 +499,6 @@ async def autopin_handler(event, client, keywords):
 
 # === FITUR: DOWNLOADER ===
 
-# ====== WATERMARK UTILS ======
-def add_watermark_photo(input_path, wm_path, output_path, position=(10,10)):
-    base = Image.open(input_path).convert("RGBA")
-    wm = Image.open(wm_path).convert("RGBA")
-
-    # Resize watermark biar proporsional
-    scale = 0.2
-    wm_width = int(base.width * scale)
-    wm_height = int(wm.height * wm_width / wm.width)
-    wm = wm.resize((wm_width, wm_height), Image.ANTIALIAS)
-
-    base.paste(wm, position, wm)
-    base.save(output_path, "PNG")
-    return output_path
-
-def add_watermark_video(input_path, wm_path, output_path, position="10:10"):
-    cmd = [
-        "ffmpeg", "-y",
-        "-i", input_path,
-        "-i", wm_path,
-        "-filter_complex", f"overlay={position}",
-        "-codec:a", "copy",
-        output_path
-    ]
-    subprocess.run(cmd, check=True)
-    return output_path
-# ====== END WATERMARK UTILS ======
-
 def is_valid_url(url):
     """Validasi apakah string adalah URL yang valid"""
     try:
@@ -826,15 +796,9 @@ async def handle_downloader(event, client):
                         with open(video_filename, 'wb') as f:
                             for chunk in video_res.iter_content(chunk_size=8192):
                                 f.write(chunk)
-
-                        wm_video = f"wm_{video_filename}"
-                        wm_path = "https://files.catbox.moe/mn34ax.jpg"  # path logo watermark kamu
-                        add_watermark_video(video_filename, wm_path, wm_video)
                         
-                        await client.send_file(event.chat_id, wm_video, caption=caption)
-                        # Bersihkan file
+                        await client.send_file(event.chat_id, video_filename, caption=caption)
                         os.remove(video_filename)
-                        os.remove(wm_video)
                     else:
                         await event.reply(f"{caption}\n\n🔗 [Download Video]({video_url})")
                 except Exception as e:
