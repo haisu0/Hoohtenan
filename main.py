@@ -636,8 +636,8 @@ async def download_instagram(url, quality='best'):
         headers = {
             'Accept': 'application/json, text/plain, */*',
             'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-            'Origin': 'https://yt1s.io',
-            'Referer': 'https://yt1s.io/',
+            'Origin': 'https://www.saveinsta.app', # Changed from yt1s.io to saveinsta.app
+            'Referer': 'https://www.saveinsta.app/', # Changed from yt1s.io to saveinsta.app
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
         
@@ -648,7 +648,8 @@ async def download_instagram(url, quality='best'):
             'lang': 'en'
         }
         
-        response = requests.post('https://yt1s.io/api/ajaxSearch', headers=headers, data=data, timeout=15)
+        # Using saveinsta.app API endpoint
+        response = requests.post('https://www.saveinsta.app/api/ajaxSearch', headers=headers, data=data, timeout=15)
         response.raise_for_status()
         
         json_data = response.json()
@@ -864,10 +865,15 @@ async def handle_downloader(event, client):
                         chunk = all_files[i:i+10]
                         is_last_chunk = (i + 10 >= len(all_files))
                         
-                        # Caption hanya di chunk terakhir
-                        chunk_caption = caption if is_last_chunk else None
-                        
-                        await client.send_file(event.chat_id, chunk, caption=chunk_caption)
+                        if is_last_chunk:
+                            # Kirim semua kecuali file terakhir tanpa caption
+                            if len(chunk) > 1:
+                                await client.send_file(event.chat_id, chunk[:-1], caption=None)
+                            # Kirim file terakhir dengan caption
+                            await client.send_file(event.chat_id, chunk[-1], caption=caption)
+                        else:
+                            # Chunk bukan terakhir, kirim tanpa caption
+                            await client.send_file(event.chat_id, chunk, caption=None)
                     
                     # Hapus semua file
                     for f in all_files:
@@ -952,15 +958,22 @@ async def handle_downloader(event, client):
                             pass
                     
                     if all_files:
+                        caption = f"📹 **Instagram Videos** ({len(all_files)} videos)"
+                        
                         # Split files menjadi chunks of 10
                         for i in range(0, len(all_files), 10):
                             chunk = all_files[i:i+10]
                             is_last_chunk = (i + 10 >= len(all_files))
                             
-                            # Caption hanya di chunk terakhir
-                            chunk_caption = f"📹 **Instagram Videos** ({len(all_files)} videos)" if is_last_chunk else None
-                            
-                            await client.send_file(event.chat_id, chunk, caption=chunk_caption)
+                            if is_last_chunk:
+                                # Kirim semua kecuali file terakhir tanpa caption
+                                if len(chunk) > 1:
+                                    await client.send_file(event.chat_id, chunk[:-1], caption=None)
+                                # Kirim file terakhir dengan caption
+                                await client.send_file(event.chat_id, chunk[-1], caption=caption)
+                            else:
+                                # Chunk bukan terakhir, kirim tanpa caption
+                                await client.send_file(event.chat_id, chunk, caption=None)
                         
                         # Hapus semua file
                         for f in all_files:
@@ -1011,15 +1024,22 @@ async def handle_downloader(event, client):
                             pass
                     
                     if all_files:
+                        caption = f"🖼 **Instagram Images** ({len(all_files)} photos)"
+                        
                         # Split files menjadi chunks of 10
                         for i in range(0, len(all_files), 10):
                             chunk = all_files[i:i+10]
                             is_last_chunk = (i + 10 >= len(all_files))
                             
-                            # Caption hanya di chunk terakhir
-                            chunk_caption = f"🖼 **Instagram Images** ({len(all_files)} photos)" if is_last_chunk else None
-                            
-                            await client.send_file(event.chat_id, chunk, caption=chunk_caption)
+                            if is_last_chunk:
+                                # Kirim semua kecuali file terakhir tanpa caption
+                                if len(chunk) > 1:
+                                    await client.send_file(event.chat_id, chunk[:-1], caption=None)
+                                # Kirim file terakhir dengan caption
+                                await client.send_file(event.chat_id, chunk[-1], caption=caption)
+                            else:
+                                # Chunk bukan terakhir, kirim tanpa caption
+                                await client.send_file(event.chat_id, chunk, caption=None)
                         
                         # Hapus semua file
                         for f in all_files:
@@ -1070,10 +1090,15 @@ async def handle_downloader(event, client):
                         chunk = all_files[i:i+10]
                         is_last_chunk = (i + 10 >= len(all_files))
                         
-                        # Caption hanya di chunk terakhir
-                        chunk_caption = caption if is_last_chunk else None
-                        
-                        await client.send_file(event.chat_id, chunk, caption=chunk_caption)
+                        if is_last_chunk:
+                            # Kirim semua kecuali file terakhir tanpa caption
+                            if len(chunk) > 1:
+                                await client.send_file(event.chat_id, chunk[:-1], caption=None)
+                            # Kirim file terakhir dengan caption
+                            await client.send_file(event.chat_id, chunk[-1], caption=caption)
+                        else:
+                            # Chunk bukan terakhir, kirim tanpa caption
+                            await client.send_file(event.chat_id, chunk, caption=None)
                     
                     # Hapus semua file
                     for f in all_files:
