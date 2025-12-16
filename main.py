@@ -206,7 +206,7 @@ async def scheduled_message(client, targets, akun_nama):
         now = datetime.now(ZoneInfo("Asia/Jakarta"))
         today = now.date()
 
-        if now.hour == 7 and now.minute == 40:
+        if now.hour == 6 and now.minute == 0:
             if last_sent_date_pagi != today:
                 for target in targets:
                     try:
@@ -452,7 +452,6 @@ async def whois_handler(event, client):
         f"📖 Bio: {bio}\n"
         f"⭐ Premium: {'Ya' if getattr(user, 'premium', False) else 'Tidak'}\n"
         f"🤖 Bot: {'Ya' if user.bot else 'Tidak'}\n"
-        f"☎️ Nomor: {phone}\n"
     )
     
     try:
@@ -546,13 +545,6 @@ def get_best_video_url(video_data, platform='tiktok'):
             return video_data['nowatermark']
         elif video_data.get('watermark'):
             return video_data['watermark']
-    elif platform == 'facebook':
-        # Prioritas: HD > SD
-        for vid in video_data:
-            if vid.get('quality') == 'HD':
-                return vid.get('url')
-        return video_data[0].get('url') if video_data else None
-    
     return None
 
 async def download_tiktok(url, quality='best'):
