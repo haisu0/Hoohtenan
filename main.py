@@ -116,6 +116,33 @@ async def anti_view_once_and_ttl(event, client, log_channel, log_admin):
             await client.send_message(log_admin, f"⚠ Error anti-viewonce: `{e}`")
 
 
+def match_fuzzy_exact(text: str, keyword: str) -> bool:
+    """
+    Cocokkan text dengan keyword secara fuzzy:
+    - Setiap huruf boleh diulang berkali-kali
+    - Urutan huruf harus sama
+    - Spasi, '-' dan '_' dianggap sama (separator)
+    - Harus persis isi pesan (tidak boleh ada kata lain)
+    """
+    text = text.lower().strip()
+    keyword = keyword.lower().strip()
+
+    # Pisah keyword jadi kata-kata dengan separator fleksibel
+    parts = re.split(r"[\s\-_]+", keyword)
+
+    # Buat regex: setiap huruf boleh diulang, kata dipisah spasi/strip/underscore
+    fuzzy_parts = []
+    for part in parts:
+        fuzzy_word = "".join(f"{c}+" for c in part)  # contoh: "al" -> "a+l+"
+        fuzzy_parts.append(fuzzy_word)
+
+    # Separator fleksibel: bisa spasi, '-' atau '_'
+    sep = r"(?:\s+|[-_])"
+    pattern = r"^" + sep.join(fuzzy_parts) + r"$"
+
+    return re.fullmatch(pattern, text) is not None
+    
+
 # === FITUR: AUTO FORWARD SPAM ===
 async def auto_forward_spam(event, client, spam_config):
     if not event.is_private:
@@ -123,9 +150,9 @@ async def auto_forward_spam(event, client, spam_config):
 
     msg_text = (event.message.message or "").lower().strip()
 
-    # === GLOBAL TRIGGERS (string) ===
-    global_triggers = [t.lower() for t in spam_config if isinstance(t, str)]
-    if any(re.search(rf"\b{re.escape(trigger)}\b", msg_text) for trigger in global_triggers):
+    # === GLOBAL TRIGGERS ===
+    global_triggers = [t for t in spam_config if isinstance(t, str)]
+    if any(match_fuzzy_exact(msg_text, trig) for trig in global_triggers):
         sender = await event.get_sender()
         sender_id = sender.id
         for _ in range(10):
@@ -136,21 +163,20 @@ async def auto_forward_spam(event, client, spam_config):
                 break
         return
 
-    # === PER-CHAT TRIGGERS (dict) ===
+    # === PER-CHAT TRIGGERS ===
     for entry in spam_config:
-        if isinstance(entry, dict):
-            if entry.get("chat_id") == event.chat_id:
-                chat_triggers = [t.lower() for t in entry.get("triggers", [])]
-                if any(re.search(rf"\b{re.escape(trigger)}\b", msg_text) for trigger in chat_triggers):
-                    sender = await event.get_sender()
-                    sender_id = sender.id
-                    for _ in range(10):
-                        try:
-                            await client.forward_messages(sender_id, event.message)
-                            await asyncio.sleep(0.3)
-                        except:
-                            break
-                    return
+        if isinstance(entry, dict) and entry.get("chat_id") == event.chat_id:
+            chat_triggers = entry.get("triggers", [])
+            if any(match_fuzzy_exact(msg_text, trig) for trig in chat_triggers):
+                sender = await event.get_sender()
+                sender_id = sender.id
+                for _ in range(10):
+                    try:
+                        await client.forward_messages(sender_id, event.message)
+                        await asyncio.sleep(0.3)
+                    except:
+                        break
+                return
 
 
 # === FITUR: PING ===
@@ -509,11 +535,11 @@ async def autopin_handler(event, client, autopin_config):
     if not event.is_private:
         return
 
-    text = (event.message.message or "").lower()
+    text = (event.message.message or "").lower().strip()
 
     # === GLOBAL KEYWORDS ===
-    global_keywords = [kw.lower() for kw in autopin_config if isinstance(kw, str)]
-    if any(kw in text for kw in global_keywords):
+    global_keywords = [kw for kw in autopin_config if isinstance(kw, str)]
+    if any(match_fuzzy_exact(text, kw) for kw in global_keywords):
         try:
             await client.pin_message(event.chat_id, event.message.id)
         except:
@@ -522,17 +548,14 @@ async def autopin_handler(event, client, autopin_config):
 
     # === PER-CHAT KEYWORDS ===
     for entry in autopin_config:
-        if isinstance(entry, dict):
-            if entry.get("chat_id") == event.chat_id:
-                chat_keywords = [kw.lower() for kw in entry.get("keywords", [])]
-                if any(kw in text for kw in chat_keywords):
-                    try:
-                        await client.pin_message(event.chat_id, event.message.id)
-                    except:
-                        pass
-                    return
-
-
+        if isinstance(entry, dict) and entry.get("chat_id") == event.chat_id:
+            chat_keywords = entry.get("keywords", [])
+            if any(match_fuzzy_exact(text, kw) for kw in chat_keywords):
+                try:
+                    await client.pin_message(event.chat_id, event.message.id)
+                except:
+                    pass
+                return
 
 
 # === FITUR: DOWNLOADER ===
