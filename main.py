@@ -752,15 +752,15 @@ async def download_youtube(url):
     except Exception as e:
         return {'success': False, 'message': str(e)}
         
-async def youtube_button_handler(event, client):
+@client.on(events.CallbackQuery)
+async def youtube_button_handler(event):
     data = event.data.decode('utf-8')
-    # format: "yt|<url>|<format_id>"
     if not data.startswith("yt|"):
         return
-    
+
     _, url, fmt = data.split("|", 2)
     await event.answer("⏳ Sedang mengunduh...")
-    
+
     try:
         ydl_opts = {
             'format': fmt,
@@ -769,13 +769,12 @@ async def youtube_button_handler(event, client):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             filename = ydl.prepare_filename(info)
-        
-        await client.send_file(event.chat_id, filename, caption=f"📹 {info['title']}")
+
+        caption = f"📹 **{info.get('title','YouTube')}**\n👤 {info.get('uploader','-')}"
+        await client.send_file(event.chat_id, filename, caption=caption)
         os.remove(filename)
     except Exception as e:
         await client.send_message(event.chat_id, f"⚠️ Error download: {e}")
-        
-
 
 async def handle_downloader(event, client):
     """Handler utama untuk command /d dan /download"""
@@ -1181,12 +1180,8 @@ async def handle_downloader(event, client):
                 f"👤 **Channel:** {result.get('uploader','-')}"
             )
 
-            await event.reply(
-                caption,
-                buttons=buttons,
-                link_preview=True
-            )
-        
+            await event.reply(caption, buttons=buttons, link_preview=True)
+            
     except Exception as e:
         try:
             await loading.delete()
