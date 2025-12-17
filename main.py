@@ -1267,7 +1267,7 @@ async def main():
         # === DOWNLOADER ===
         if "downloader" in acc["features"]:
             @client.on(events.NewMessage(pattern=r'^/(d|download)(?:\s+|$)(.*)'))
-            client.add_event_handler(youtube_button_handler, events.CallbackQuery)
+            client.add_event_handler(youtube_button_handler, events.CallbackQuery())
             async def downloader_handler(event, c=client):
                 await handle_downloader(event, c)
 
