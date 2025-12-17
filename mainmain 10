@@ -116,16 +116,20 @@ async def anti_view_once_and_ttl(event, client, log_channel, log_admin):
             await client.send_message(log_admin, f"⚠ Error anti-viewonce: `{e}`")
 
 
-# === FITUR: AUTO FORWARD SPAM ===
+# === Fungsi Normalisasi ===
+def normalize_text(text: str) -> str:
+    # ubah huruf berulang jadi satu
+    return re.sub(r'(.)\1+', r'\1', text.lower()).strip()
+
 # === FITUR: AUTO FORWARD SPAM ===
 async def auto_forward_spam(event, client, spam_config):
     if not event.is_private:
         return
 
-    msg_text = (event.message.message or "").lower().strip()
+    msg_text = normalize_text(event.message.message or "")
 
     # === GLOBAL TRIGGERS (string) ===
-    global_triggers = [t.lower() for t in spam_config if isinstance(t, str)]
+    global_triggers = [normalize_text(t) for t in spam_config if isinstance(t, str)]
     if any(trigger in msg_text for trigger in global_triggers):
         sender = await event.get_sender()
         sender_id = sender.id
@@ -141,7 +145,7 @@ async def auto_forward_spam(event, client, spam_config):
     for entry in spam_config:
         if isinstance(entry, dict):
             if entry.get("chat_id") == event.chat_id:
-                chat_triggers = [t.lower() for t in entry.get("triggers", [])]
+                chat_triggers = [normalize_text(t) for t in entry.get("triggers", [])]
                 if any(trigger in msg_text for trigger in chat_triggers):
                     sender = await event.get_sender()
                     sender_id = sender.id
@@ -152,7 +156,7 @@ async def auto_forward_spam(event, client, spam_config):
                         except:
                             break
                     return
-
+                    
 # === FITUR: PING ===
 async def ping_handler(event, client):
     if not event.is_private:
@@ -505,15 +509,14 @@ async def whois_handler(event, client):
 
 
 # === FITUR: AUTO-PIN ===
-# === FITUR: AUTO-PIN ===
 async def autopin_handler(event, client, autopin_config):
     if not event.is_private:
         return
 
-    text = (event.message.message or "").lower()
+    text = normalize_text(event.message.message or "")
 
     # === GLOBAL KEYWORDS ===
-    global_keywords = [kw.lower() for kw in autopin_config if isinstance(kw, str)]
+    global_keywords = [normalize_text(kw) for kw in autopin_config if isinstance(kw, str)]
     if any(keyword in text for keyword in global_keywords):
         try:
             await client.pin_message(event.chat_id, event.message.id)
@@ -525,14 +528,13 @@ async def autopin_handler(event, client, autopin_config):
     for entry in autopin_config:
         if isinstance(entry, dict):
             if entry.get("chat_id") == event.chat_id:
-                chat_keywords = [kw.lower() for kw in entry.get("keywords", [])]
+                chat_keywords = [normalize_text(kw) for kw in entry.get("keywords", [])]
                 if any(keyword in text for keyword in chat_keywords):
                     try:
                         await client.pin_message(event.chat_id, event.message.id)
                     except:
                         pass
                     return
-
 
 # === FITUR: DOWNLOADER ===
 
