@@ -1179,7 +1179,12 @@ async def handle_downloader(event, client):
                 f"👤 **Channel:** {result.get('uploader','-')}"
             )
 
-            await event.reply(caption, buttons=buttons, link_preview=True)
+            await client.send_message(
+                event.chat_id,
+                caption,
+                buttons=buttons,
+                link_preview=True
+            )
             
     except Exception as e:
         try:
@@ -1262,6 +1267,7 @@ async def main():
         # === DOWNLOADER ===
         if "downloader" in acc["features"]:
             @client.on(events.NewMessage(pattern=r'^/(d|download)(?:\s+|$)(.*)'))
+            client.add_event_handler(youtube_button_handler, events.CallbackQuery)
             async def downloader_handler(event, c=client):
                 await handle_downloader(event, c)
 
