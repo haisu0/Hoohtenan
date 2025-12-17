@@ -752,7 +752,6 @@ async def download_youtube(url):
     except Exception as e:
         return {'success': False, 'message': str(e)}
         
-@client.on(events.CallbackQuery)
 async def youtube_button_handler(event):
     data = event.data.decode('utf-8')
     if not data.startswith("yt|"):
