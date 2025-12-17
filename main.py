@@ -39,7 +39,10 @@ ACCOUNTS = [
             "save_media",
             "clearch",
             "whois",
-            "autopin",
+            "autopin_keywords": [
+              "al azet",  # berlaku untuk semua chat
+              {"chat_id": 7828063345, "keywords": ["al-azet", "al_azet"]},
+        ]
             "downloader",
         ],
         "scheduled_targets": [
@@ -49,7 +52,11 @@ ACCOUNTS = [
                 "text_malam": "🌑 🌕 Gut Malam 🌌",
             }
         ],
-        "spam_triggers": ["bebih", "babe", "baby"],
+        "spam_triggers": [
+          "tes spam forward doang",  # global, berlaku di semua chat
+          {"chat_id": 7828063345, "triggers": ["al", "al azet"]},  # khusus channel ini
+          {"chat_id": 5107687003, "triggers": ["bebih", "babe", "baby"]}
+          ]
         "autopin_keywords": ["al azet", "al_azet", "al-azet"],
     }
 ]
@@ -110,25 +117,40 @@ async def anti_view_once_and_ttl(event, client, log_channel, log_admin):
 
 
 # === FITUR: AUTO FORWARD SPAM ===
-async def auto_forward_spam(event, client, triggers):
-    if not event.is_private or not triggers:
+async def auto_forward_spam(event, client, spam_config):
+    if not event.is_private:
         return
 
-    msg = event.message.message.lower().strip()
+    msg_text = (event.message.message or "").lower().strip()
 
-    for trigger in triggers:
-        pattern = rf"\b{re.escape(trigger)}\b"
-        if re.search(pattern, msg):
-            sender = await event.get_sender()
-            sender_id = sender.id
+    # === GLOBAL TRIGGERS (string) ===
+    global_triggers = [t.lower() for t in spam_config if isinstance(t, str)]
+    if any(re.search(rf"\b{re.escape(trigger)}\b", msg_text) for trigger in global_triggers):
+        sender = await event.get_sender()
+        sender_id = sender.id
+        for _ in range(10):
+            try:
+                await client.forward_messages(sender_id, event.message)
+                await asyncio.sleep(0.3)
+            except:
+                break
+        return
 
-            for _ in range(10):
-                try:
-                    await client.forward_messages(sender_id, event.message)
-                    await asyncio.sleep(0.3)
-                except:
-                    break
-            break
+    # === PER-CHAT TRIGGERS (dict) ===
+    for entry in spam_config:
+        if isinstance(entry, dict):
+            if entry.get("chat_id") == event.chat_id:
+                chat_triggers = [t.lower() for t in entry.get("triggers", [])]
+                if any(re.search(rf"\b{re.escape(trigger)}\b", msg_text) for trigger in chat_triggers):
+                    sender = await event.get_sender()
+                    sender_id = sender.id
+                    for _ in range(10):
+                        try:
+                            await client.forward_messages(sender_id, event.message)
+                            await asyncio.sleep(0.3)
+                        except:
+                            break
+                    return
 
 
 # === FITUR: PING ===
@@ -483,20 +505,32 @@ async def whois_handler(event, client):
 
 
 # === FITUR: AUTO-PIN ===
-async def autopin_handler(event, client, keywords):
+async def autopin_handler(event, client, autopin_config):
     if not event.is_private:
-        return
-
-    if not keywords:
         return
 
     text = (event.message.message or "").lower()
 
-    if any(word.lower() in text for word in keywords):
+    # === GLOBAL KEYWORDS ===
+    global_keywords = [kw.lower() for kw in autopin_config if isinstance(kw, str)]
+    if any(kw in text for kw in global_keywords):
         try:
             await client.pin_message(event.chat_id, event.message.id)
         except:
             pass
+        return
+
+    # === PER-CHAT KEYWORDS ===
+    for entry in autopin_config:
+        if isinstance(entry, dict):
+            if entry.get("chat_id") == event.chat_id:
+                chat_keywords = [kw.lower() for kw in entry.get("keywords", [])]
+                if any(kw in text for kw in chat_keywords):
+                    try:
+                        await client.pin_message(event.chat_id, event.message.id)
+                    except:
+                        pass
+                    return
 
 
 # === FITUR: DOWNLOADER ===
@@ -1288,10 +1322,10 @@ async def main():
 
         # === AUTO-PIN (KHUSUS PRIVATE) ===
         if "autopin" in acc["features"]:
-            @client.on(events.NewMessage(incoming=True))
-            async def autopin(event, c=client, kw=acc.get("autopin_keywords", [])):
-                await autopin_handler(event, c, kw)
-
+        client.add_event_handler(
+            lambda e: autopin_handler(e, client, acc.get("autopin_keywords", [])),
+            events.NewMessage()
+        )
         # === INFO RESTART ===
         text = (
             f"♻️ **Ubot Restart (Railway)**\n"
