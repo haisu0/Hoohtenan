@@ -39,10 +39,7 @@ ACCOUNTS = [
             "save_media",
             "clearch",
             "whois",
-            "autopin_keywords": [
-              "al azet",  # berlaku untuk semua chat
-              {"chat_id": 7828063345, "keywords": ["al-azet", "al_azet"]},
-        ]
+            "autopin",
             "downloader",
         ],
         "scheduled_targets": [
@@ -57,7 +54,10 @@ ACCOUNTS = [
           {"chat_id": 7828063345, "triggers": ["al", "al azet"]},  # khusus channel ini
           {"chat_id": 5107687003, "triggers": ["bebih", "babe", "baby"]}
           ]
-        "autopin_keywords": ["al azet", "al_azet", "al-azet"],
+        "autopin_keywords": [
+          "al azet",  # berlaku untuk semua chat
+          {"chat_id": 7828063345, "keywords": ["al-azet", "al_azet"]},
+        ]
     }
 ]
 
