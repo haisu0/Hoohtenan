@@ -28,7 +28,7 @@ API_HASH = '1cfb28ef51c138a027786e43a27a8225'
 
 ACCOUNTS = [
     {
-        "session": "1BVtsOIIBu4Z0S11NsMdWP8Ua-p8C4gFEBAyD0TGmshXRvGQNBYavPrKNFgcEXWz-sDT_w9HLML-9nMrSWTqAAfqvx4Y6157p30Gqy09ViCrgzKyfo7IEdhK7Tqnjlt5lSYwuhfalN4R4GtgjBoY7FQBH7EIYozqwxFp8U93PYdsqWKQdG_bhBqZ2I02dqOqOqc_feGpBFrTwLPLld_tPjIuvBk02zgUGV3E3vYdmdGx8gPFveGbSLLHJdHoFH-E-K_paygXWXVjFopilIAKl9fuw36Wjrd-ijV0OpRIfEEff3sH8jFoGQfdthUaZiLlcr4V373-eeh-LOAc8W-CxBhKDfDne0P0=",
+        "session": "1BVtsOKgBu0l1em7gQclC80PlZMCFDCWGlXjysPPWeWndxqSKqoYiimx6h2uthMnQwq83qGUHZwh2fGAAuMzyrh3szU9OcRyXMEBMHivlZNQE_MU3CwjG1C46nvvK6KOwz2qBLdP9d-eRs2V4jpHJQLoZGSwiHP6Mn8Wx4wFDFg8WvBR4UKNOKtaACnDt_wpP3GIzLhXJdBomgKzwJs9MHoRZJ9a6sbhudrmLhpNdBwjdkYUR_y_ot68fBC16Sbm8lybeZ3Wzx_HPN6JZDGbu1-bVJbj_p28pSR5EWYYhqqPL1wZn10sw86-At3MSnSKSxg1PYyoDH1IuZ5UUR_4NlUSq5fr3urE=",
         "log_channel": -1003402358031,
         "log_admin": 1488611909,
         "features": [
@@ -360,34 +360,22 @@ async def handle_save_command(event, client):
         return
     
     input_text = event.pattern_match.group(2).strip()
+    reply = await event.get_reply_message() if event.is_reply else None
 
-    if not input_text:
-        if event.is_reply:
-            reply = await event.get_reply_message()
-            if reply and reply.message:
-                input_text = reply.message.strip()
-            else:
-                await event.reply("❌ Pesan balasan tidak berisi teks.")
-                return
-        else:
-            await event.reply("❌ Kirim link seperti `https://t.me/c/xxx/yyy`.")
-            return
-
-    parts = input_text.split(maxsplit=1)
-    target_chat_raw = None
+    target_chat = event.chat_id
     links_part = input_text
 
-    if len(parts) == 2:
-        possible_target = parts[0]
-        if re.match(r'^@?[a-zA-Z0-9_]+$', possible_target) or re.match(r'^-?\d+$', possible_target):
-            target_chat_raw = possible_target
-            links_part = parts[1]
-
-    if target_chat_raw:
+    # === PATCH: kalau input hanya target chat ===
+    if input_text and (re.match(r'^@?[a-zA-Z0-9_]+$', input_text) or re.match(r'^-?\d+$', input_text)):
+        target_chat_raw = input_text
         target_chat = int(target_chat_raw) if target_chat_raw.lstrip("-").isdigit() else target_chat_raw
-    else:
-        target_chat = None
+        if reply and reply.message:
+            links_part = reply.message.strip()
+        else:
+            await event.reply("❌ Harus reply pesan berisi link kalau cuma kasih target chat.")
+            return
 
+    # === Ambil semua link ===
     matches = link_regex.findall(links_part)
     if not matches:
         await event.reply("❌ Tidak ada link valid.")
