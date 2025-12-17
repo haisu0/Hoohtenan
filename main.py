@@ -1273,11 +1273,11 @@ async def main():
                 await anti_view_once_and_ttl(event, c, lc, la)
 
         # === SPAM FORWARD ===
-        if "spam_forward" in acc["features"] and acc.get("spam_triggers"):
-            @client.on(events.NewMessage(incoming=True))
-            async def spam_handler(event, c=client, triggers=acc["spam_triggers"]):
-                await auto_forward_spam(event, c, triggers)
-
+        if "spam_forward" in acc["features"]:
+        client.add_event_handler(
+            lambda e: auto_forward_spam(e, client, acc.get("spam_triggers", [])),
+            events.NewMessage()
+        )
         # === PING ===
         if "ping" in acc["features"]:
             @client.on(events.NewMessage(pattern=r"^/ping$"))
