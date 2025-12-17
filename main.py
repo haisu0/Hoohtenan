@@ -784,7 +784,7 @@ async def handle_downloader(event, client):
     if event.sender_id != me.id:
         return
     
-    input_text = (event.pattern_match.group(2) or '').strip() if event.pattern_match.last_index >= 2 else ''
+    input_text = (event.pattern_match.group(1) or '').strip()
     
     if not input_text:
         if event.is_reply:
@@ -1269,7 +1269,7 @@ async def main():
             # pasang handler command /d atau /download
             client.add_event_handler(
                 lambda e: handle_downloader(e, client),
-                events.NewMessage(pattern=r"^/(?:d|download)(?:\s+(.*))?$")
+                events.NewMessage(pattern=r'^/(?:d|download)(?:\s+(.*))?$')
             )
             # pasang handler tombol YouTube
             client.add_event_handler(youtube_button_handler, events.CallbackQuery)
