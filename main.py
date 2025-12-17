@@ -17,6 +17,8 @@ import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, parse_qs, urlencode, unquote
 from telethon import types
+import yt_dlp
+from telethon import Button
 
 # === KONFIGURASI UTAMA ===
 API_ID = 20958475
@@ -527,7 +529,8 @@ def sanitize_url(url):
 PLATFORM_PATTERNS = {
     'tiktok': re.compile(r'(?:^|\.)tiktok\.com', re.IGNORECASE),
     'instagram': re.compile(r'(?:^|\.)instagram\.com|instagr\.am', re.IGNORECASE),
-    'facebook': re.compile(r'(?:^|\.)facebook\.com|fb\.watch', re.IGNORECASE),
+    'youtube': re.compile(r'(?:^|\.)youtube\.com|youtu\.be', re.IGNORECASE)
+
 }
 
 def detect_platform(url):
@@ -547,14 +550,6 @@ def get_best_video_url(video_data, platform='tiktok'):
             return video_data['nowatermark']
         elif video_data.get('watermark'):
             return video_data['watermark']
-            
-    elif platform == 'facebook':
-        # Prioritas: HD > SD
-        for vid in video_data:
-            if vid.get('quality') == 'HD':
-                return vid.get('url')
-        return video_data[0].get('url') if video_data else None
-    
     return None
 
 async def download_tiktok(url, quality='best'):
@@ -715,58 +710,71 @@ async def download_instagram(url, quality='best'):
         
     except Exception as e:
         return {'success': False, 'message': f'Error Instagram: {str(e)}'}
-        
-async def download_facebook(url, quality='best'):
-    """Handler untuk download Facebook video"""
+
+async def download_youtube(url):
+    """Ambil info YouTube tanpa langsung download"""
     try:
-        headers = {
-            'hx-current-url': 'https://getmyfb.com/',
-            'hx-request': 'true',
-            'hx-target': '#private-video-downloader' if 'share' in url else '#target',
-            'hx-trigger': 'form',
-            'hx-post': '/process',
-            'hx-swap': 'innerHTML',
-            'User-Agent': 'Mozilla/5.0'
+        ydl_opts = {
+            'quiet': True,
+            'skip_download': True,
+            'format': 'best',
         }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
         
-        data = {
-            'id': requests.utils.unquote(url),
-            'locale': 'en'
-        }
+        formats = []
+        for f in info.get('formats', []):
+            if f.get('ext') == 'mp4' and f.get('height'):
+                formats.append({
+                    'format_id': f['format_id'],
+                    'resolution': f'{f["height"]}p',
+                    'filesize': f.get('filesize', 0)
+                })
         
-        response = requests.post('https://getmyfb.com/process', headers=headers, data=data, timeout=15)
-        response.raise_for_status()
+        audios = []
+        for f in info.get('formats', []):
+            if f.get('ext') in ['m4a', 'mp3'] and not f.get('height'):
+                audios.append({
+                    'format_id': f['format_id'],
+                    'abr': f.get('abr', 0),
+                    'filesize': f.get('filesize', 0)
+                })
         
-        html = response.text
-        soup = BeautifulSoup(html, 'html.parser')
-        
-        caption = soup.select_one('.results-item-text')
-        preview = soup.select_one('.results-item-image')
-        items = soup.select('.results-list-item')
-        
-        results = []
-        for el in items:
-            text = el.get_text(strip=True)
-            link = el.find('a')['href'] if el.find('a') else ''
-            results.append({
-                'quality': 'HD' if 'HD' in text else 'SD',
-                'label': text,
-                'url': link
-            })
-        
-        result = {
+        return {
             'success': True,
-            'platform': 'Facebook',
-            'type': 'video',
-            'caption': caption.text.strip() if caption else '',
-            'preview': preview['src'] if preview else '',
-            'results': results
+            'title': info.get('title'),
+            'uploader': info.get('uploader'),
+            'thumbnail': info.get('thumbnail'),
+            'formats': formats,
+            'audios': audios,
+            'url': url
         }
-        
-        return result
-    
     except Exception as e:
-        return {'success': False, 'message': f'Error Facebook: {str(e)}'}
+        return {'success': False, 'message': str(e)}
+        
+async def youtube_button_handler(event, client):
+    data = event.data.decode('utf-8')
+    # format: "yt|<url>|<format_id>"
+    if not data.startswith("yt|"):
+        return
+    
+    _, url, fmt = data.split("|", 2)
+    await event.answer("⏳ Sedang mengunduh...")
+    
+    try:
+        ydl_opts = {
+            'format': fmt,
+            'outtmpl': f'youtube_%(id)s.%(ext)s',
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            filename = ydl.prepare_filename(info)
+        
+        await client.send_file(event.chat_id, filename, caption=f"📹 {info['title']}")
+        os.remove(filename)
+    except Exception as e:
+        await client.send_message(event.chat_id, f"⚠️ Error download: {e}")
+        
 
 
 async def handle_downloader(event, client):
@@ -817,8 +825,8 @@ async def handle_downloader(event, client):
             result = await download_tiktok(clean_url)
         elif platform == 'instagram':
             result = await download_instagram(clean_url)
-        elif platform == 'facebook':
-            result = await download_facebook(clean_url)
+        elif platform == 'youtube':
+            result = await download_youtube(clean_url)
         else:
             await loading.edit("❌ Platform belum didukung")
             return
@@ -1153,43 +1161,31 @@ async def handle_downloader(event, client):
                         await event.reply(f"{media_type_emoji} **Instagram {media_type_text} {idx}**\n\n🔗 [Download]({media_item['url']})")
             else:
                 await event.reply("❌ Tidak ada media yang ditemukan")
-                
-        # ===== FACEBOOK HANDLER =====
-        elif platform == 'facebook':
-            if not result['results']:
-                await event.reply("❌ Tidak ada hasil video dari Facebook")
-                return
 
-            best = None
-            # pilih HD kalau ada
-            for r in result['results']:
-                if r['quality'] == 'HD':
-                    best = r
-                    break
-            if not best:
-                best = result['results'][0]
+        # ===== YOUTUBE HANDLER =====
+        elif platform == 'youtube':
+            buttons = []
+            for f in result.get('formats', []):
+                res = f.get('resolution', 'unknown')
+                fmt_id = f.get('format_id')
+                buttons.append([Button.inline(f"🎥 {res}", f"yt|{clean_url}|{fmt_id}")])
+
+            for a in result.get('audios', []):
+                abr = a.get('abr', 0)
+                fmt_id = a.get('format_id')
+                buttons.append([Button.inline(f"🎵 {abr}kbps", f"yt|{clean_url}|{fmt_id}")])
 
             caption = (
-                f"📹 **Facebook Video**\n\n"
-                f"📝 **Caption:** {result['caption'][:100]}{'...' if len(result['caption']) > 100 else ''}\n"
-                f"🎞 **Quality:** {best['quality']}\n"
-                f"🔗 [Download Link]({best['url']})"
+                f"📺 **YouTube Video**\n\n"
+                f"📝 **Judul:** {result.get('title','-')}\n"
+                f"👤 **Channel:** {result.get('uploader','-')}"
             )
 
-            try:
-                video_res = requests.get(best['url'], timeout=60, stream=True)
-                if video_res.status_code == 200:
-                    filename = f"facebook_{int(datetime.now().timestamp())}.mp4"
-                    with open(filename, 'wb') as f:
-                        for chunk in video_res.iter_content(chunk_size=8192):
-                            f.write(chunk)
-                    await client.send_file(event.chat_id, filename, caption=caption)
-                    os.remove(filename)
-                else:
-                    await event.reply(caption)
-            except Exception as e:
-                await event.reply(f"{caption}\n\n⚠️ Error: {str(e)}")
-
+            await event.reply(
+                caption,
+                buttons=buttons,
+                link_preview=True
+            )
         
     except Exception as e:
         try:
