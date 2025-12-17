@@ -715,7 +715,7 @@ async def download_instagram(url, quality='best'):
         
     except Exception as e:
         return {'success': False, 'message': f'Error Instagram: {str(e)}'}
-
+        
 async def download_facebook(url, quality='best'):
     """Handler untuk download Facebook video"""
     try:
@@ -726,49 +726,45 @@ async def download_facebook(url, quality='best'):
             'hx-trigger': 'form',
             'hx-post': '/process',
             'hx-swap': 'innerHTML',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            'User-Agent': 'Mozilla/5.0'
         }
-
+        
         data = {
             'id': requests.utils.unquote(url),
             'locale': 'en'
         }
-
-        response = requests.post(
-            'https://getmyfb.com/process',
-            headers=headers,
-            data=data,
-            timeout=15
-        )
+        
+        response = requests.post('https://getmyfb.com/process', headers=headers, data=data, timeout=15)
         response.raise_for_status()
-
+        
         html = response.text
         soup = BeautifulSoup(html, 'html.parser')
-
+        
         caption = soup.select_one('.results-item-text')
-        caption = caption.text.strip() if caption else ''
-
         preview = soup.select_one('.results-item-image')
-        preview = preview['src'] if preview and preview.has_attr('src') else ''
-
+        items = soup.select('.results-list-item')
+        
         results = []
-        for el in soup.select('.results-list-item'):
+        for el in items:
             text = el.get_text(strip=True)
-            link = el.find('a')
+            link = el.find('a')['href'] if el.find('a') else ''
             results.append({
                 'quality': 'HD' if 'HD' in text else 'SD',
-                'url': link['href'] if link and link.has_attr('href') else ''
+                'label': text,
+                'url': link
             })
-
-        return {
+        
+        result = {
             'success': True,
             'platform': 'Facebook',
             'type': 'video',
-            'caption': caption,
-            'preview': preview,
-            'videos': results
+            'caption': caption.text.strip() if caption else '',
+            'preview': preview['src'] if preview else '',
+            'results': results
         }
-
+        
+        return result
+    
     except Exception as e:
         return {'success': False, 'message': f'Error Facebook: {str(e)}'}
 
@@ -1160,39 +1156,39 @@ async def handle_downloader(event, client):
                 
         # ===== FACEBOOK HANDLER =====
         elif platform == 'facebook':
-          if not result['videos']:
-            await event.reply("❌ Tidak ada video ditemukan")
-            return
+            if not result['results']:
+                await event.reply("❌ Tidak ada hasil video dari Facebook")
+                return
 
-          # Ambil kualitas terbaik (HD kalau ada)
-          video_url = None
-          for vid in result['videos']:
-            if vid['quality'] == 'HD':
-              video_url = vid['url']
-              break
-          if not video_url:
-            video_url = result['videos'][0]['url']
+            best = None
+            # pilih HD kalau ada
+            for r in result['results']:
+                if r['quality'] == 'HD':
+                    best = r
+                    break
+            if not best:
+                best = result['results'][0]
 
-          caption = (
-            f"📹 **Facebook Video**\n\n"
-            f"📝 {result['caption']}\n"
-            f"🔗 [Preview]({result['preview']})"
-          )
+            caption = (
+                f"📹 **Facebook Video**\n\n"
+                f"📝 **Caption:** {result['caption'][:100]}{'...' if len(result['caption']) > 100 else ''}\n"
+                f"🎞 **Quality:** {best['quality']}\n"
+                f"🔗 [Download Link]({best['url']})"
+            )
 
-          try:
-            video_res = requests.get(video_url, timeout=60, stream=True)
-            if video_res.status_code == 200:
-              video_filename = f"facebook_{int(datetime.now().timestamp())}.mp4"
-              with open(video_filename, 'wb') as f:
-                for chunk in video_res.iter_content(chunk_size=8192):
-                  f.write(chunk)
-
-              await client.send_file(event.chat_id, video_filename, caption=caption)
-              os.remove(video_filename)
-            else:
-              await event.reply(f"{caption}\n\n🔗 [Download Video]({video_url})")
-          except Exception as e:
-            await event.reply(f"{caption}\n\n🔗 [Download Video]({video_url})\n\n⚠️ Error: {str(e)}")
+            try:
+                video_res = requests.get(best['url'], timeout=60, stream=True)
+                if video_res.status_code == 200:
+                    filename = f"facebook_{int(datetime.now().timestamp())}.mp4"
+                    with open(filename, 'wb') as f:
+                        for chunk in video_res.iter_content(chunk_size=8192):
+                            f.write(chunk)
+                    await client.send_file(event.chat_id, filename, caption=caption)
+                    os.remove(filename)
+                else:
+                    await event.reply(caption)
+            except Exception as e:
+                await event.reply(f"{caption}\n\n⚠️ Error: {str(e)}")
 
         
     except Exception as e:
