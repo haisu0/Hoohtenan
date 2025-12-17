@@ -359,7 +359,8 @@ async def handle_save_command(event, client):
     if event.sender_id != me.id:
         return
     
-    input_text = event.pattern_match.group(2).strip()
+    # PATCH: aman kalau cuma /s doang
+    input_text = event.pattern_match.group(2).strip() if event.pattern_match.group(2) else ''
     reply = await event.get_reply_message() if event.is_reply else None
 
     target_chat = event.chat_id
@@ -374,6 +375,10 @@ async def handle_save_command(event, client):
         else:
             await event.reply("❌ Harus reply pesan berisi link kalau cuma kasih target chat.")
             return
+
+    # === Kalau input kosong tapi ada reply ===
+    if not links_part and reply and reply.message:
+        links_part = reply.message.strip()
 
     # === Ambil semua link ===
     matches = link_regex.findall(links_part)
