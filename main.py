@@ -117,6 +117,7 @@ async def anti_view_once_and_ttl(event, client, log_channel, log_admin):
 
 
 # === FITUR: AUTO FORWARD SPAM ===
+# === FITUR: AUTO FORWARD SPAM ===
 async def auto_forward_spam(event, client, spam_config):
     if not event.is_private:
         return
@@ -125,7 +126,7 @@ async def auto_forward_spam(event, client, spam_config):
 
     # === GLOBAL TRIGGERS (string) ===
     global_triggers = [t.lower() for t in spam_config if isinstance(t, str)]
-    if any(re.search(rf"\b{re.escape(trigger)}\b", msg_text) for trigger in global_triggers):
+    if any(trigger in msg_text for trigger in global_triggers):
         sender = await event.get_sender()
         sender_id = sender.id
         for _ in range(10):
@@ -141,7 +142,7 @@ async def auto_forward_spam(event, client, spam_config):
         if isinstance(entry, dict):
             if entry.get("chat_id") == event.chat_id:
                 chat_triggers = [t.lower() for t in entry.get("triggers", [])]
-                if any(re.search(rf"\b{re.escape(trigger)}\b", msg_text) for trigger in chat_triggers):
+                if any(trigger in msg_text for trigger in chat_triggers):
                     sender = await event.get_sender()
                     sender_id = sender.id
                     for _ in range(10):
@@ -151,7 +152,6 @@ async def auto_forward_spam(event, client, spam_config):
                         except:
                             break
                     return
-
 
 # === FITUR: PING ===
 async def ping_handler(event, client):
@@ -505,6 +505,7 @@ async def whois_handler(event, client):
 
 
 # === FITUR: AUTO-PIN ===
+# === FITUR: AUTO-PIN ===
 async def autopin_handler(event, client, autopin_config):
     if not event.is_private:
         return
@@ -513,7 +514,7 @@ async def autopin_handler(event, client, autopin_config):
 
     # === GLOBAL KEYWORDS ===
     global_keywords = [kw.lower() for kw in autopin_config if isinstance(kw, str)]
-    if any(kw in text for kw in global_keywords):
+    if any(keyword in text for keyword in global_keywords):
         try:
             await client.pin_message(event.chat_id, event.message.id)
         except:
@@ -525,14 +526,12 @@ async def autopin_handler(event, client, autopin_config):
         if isinstance(entry, dict):
             if entry.get("chat_id") == event.chat_id:
                 chat_keywords = [kw.lower() for kw in entry.get("keywords", [])]
-                if any(kw in text for kw in chat_keywords):
+                if any(keyword in text for keyword in chat_keywords):
                     try:
                         await client.pin_message(event.chat_id, event.message.id)
                     except:
                         pass
                     return
-
-
 
 
 # === FITUR: DOWNLOADER ===
