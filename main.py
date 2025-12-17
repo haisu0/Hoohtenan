@@ -17,8 +17,6 @@ import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, parse_qs, urlencode, unquote
 from telethon import types
-import yt_dlp
-from telethon import Button
 
 # === KONFIGURASI UTAMA ===
 API_ID = 20958475
@@ -54,10 +52,12 @@ ACCOUNTS = [
           {"chat_id": 7828063345, "triggers": ["al", "al azet"]},  # khusus channel ini
           {"chat_id": 5107687003, "triggers": ["bebih", "babe", "baby"]}
           ]
+
         "autopin_keywords": [
           "al azet",  # berlaku untuk semua chat
           {"chat_id": 7828063345, "keywords": ["al-azet", "al_azet"]},
-        ]
+          ]
+
     }
 ]
 
@@ -533,6 +533,8 @@ async def autopin_handler(event, client, autopin_config):
                     return
 
 
+
+
 # === FITUR: DOWNLOADER ===
 
 def is_valid_url(url):
@@ -563,8 +565,6 @@ def sanitize_url(url):
 PLATFORM_PATTERNS = {
     'tiktok': re.compile(r'(?:^|\.)tiktok\.com', re.IGNORECASE),
     'instagram': re.compile(r'(?:^|\.)instagram\.com|instagr\.am', re.IGNORECASE),
-    'youtube': re.compile(r'(?:^|\.)youtube\.com|youtu\.be', re.IGNORECASE)
-
 }
 
 def detect_platform(url):
@@ -745,70 +745,6 @@ async def download_instagram(url, quality='best'):
     except Exception as e:
         return {'success': False, 'message': f'Error Instagram: {str(e)}'}
 
-async def download_youtube(url):
-    """Ambil info YouTube tanpa langsung download"""
-    try:
-        ydl_opts = {
-            'quiet': True,
-            'skip_download': True,
-            'format': 'best',
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-        
-        formats = []
-        for f in info.get('formats', []):
-            if f.get('ext') == 'mp4' and f.get('height'):
-                formats.append({
-                    'format_id': f['format_id'],
-                    'resolution': f'{f["height"]}p',
-                    'filesize': f.get('filesize', 0)
-                })
-        
-        audios = []
-        for f in info.get('formats', []):
-            if f.get('ext') in ['m4a', 'mp3'] and not f.get('height'):
-                audios.append({
-                    'format_id': f['format_id'],
-                    'abr': f.get('abr', 0),
-                    'filesize': f.get('filesize', 0)
-                })
-        
-        return {
-            'success': True,
-            'title': info.get('title'),
-            'uploader': info.get('uploader'),
-            'thumbnail': info.get('thumbnail'),
-            'formats': formats,
-            'audios': audios,
-            'url': url
-        }
-    except Exception as e:
-        return {'success': False, 'message': str(e)}
-        
-async def youtube_button_handler(event):
-    data = event.data.decode('utf-8')
-    if not data.startswith("yt|"):
-        return
-
-    _, url, fmt = data.split("|", 2)
-    await event.answer("⏳ Sedang mengunduh...")
-
-    try:
-        ydl_opts = {
-            'format': fmt,
-            'outtmpl': f'youtube_%(id)s.%(ext)s',
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            filename = ydl.prepare_filename(info)
-
-        caption = f"📹 **{info.get('title','YouTube')}**\n👤 {info.get('uploader','-')}"
-        await event.client.send_file(event.chat_id, filename, caption=caption)
-        os.remove(filename)
-    except Exception as e:
-        await event.client.send_message(event.chat_id, f"⚠️ Error download: {e}")
-
 async def handle_downloader(event, client):
     """Handler utama untuk command /d dan /download"""
     if not event.is_private:
@@ -818,7 +754,7 @@ async def handle_downloader(event, client):
     if event.sender_id != me.id:
         return
     
-    input_text = (event.pattern_match.group(1) or '').strip()
+    input_text = event.pattern_match.group(2).strip() if event.pattern_match.group(2) else ''
     
     if not input_text:
         if event.is_reply:
@@ -857,8 +793,6 @@ async def handle_downloader(event, client):
             result = await download_tiktok(clean_url)
         elif platform == 'instagram':
             result = await download_instagram(clean_url)
-        elif platform == 'youtube':
-            result = await download_youtube(clean_url)
         else:
             await loading.edit("❌ Platform belum didukung")
             return
@@ -1193,33 +1127,7 @@ async def handle_downloader(event, client):
                         await event.reply(f"{media_type_emoji} **Instagram {media_type_text} {idx}**\n\n🔗 [Download]({media_item['url']})")
             else:
                 await event.reply("❌ Tidak ada media yang ditemukan")
-
-        # ===== YOUTUBE HANDLER =====
-        elif platform == 'youtube':
-            buttons = []
-            for f in result.get('formats', []):
-                res = f.get('resolution', 'unknown')
-                fmt_id = f.get('format_id')
-                buttons.append([Button.inline(f"🎥 {res}", f"yt|{clean_url}|{fmt_id}")])
-
-            for a in result.get('audios', []):
-                abr = a.get('abr', 0)
-                fmt_id = a.get('format_id')
-                buttons.append([Button.inline(f"🎵 {abr}kbps", f"yt|{clean_url}|{fmt_id}")])
-
-            caption = (
-                f"📺 **YouTube Video**\n\n"
-                f"📝 **Judul:** {result.get('title','-')}\n"
-                f"👤 **Channel:** {result.get('uploader','-')}"
-            )
-
-            await client.send_message(
-                event.chat_id,
-                caption,
-                buttons=buttons,
-                link_preview=True
-            )
-            
+        
     except Exception as e:
         try:
             await loading.delete()
@@ -1262,7 +1170,6 @@ async def main():
 
     for index, acc in enumerate(ACCOUNTS, start=1):
         client = TelegramClient(StringSession(acc["session"]), API_ID, API_HASH)
-        client.add_event_handler(youtube_button_handler, events.CallbackQuery)
         await client.start()
         akun_nama = f"Akun {index}"
 
@@ -1274,10 +1181,11 @@ async def main():
 
         # === SPAM FORWARD ===
         if "spam_forward" in acc["features"]:
-        client.add_event_handler(
+          client.add_event_handler(
             lambda e: auto_forward_spam(e, client, acc.get("spam_triggers", [])),
             events.NewMessage()
-        )
+            )
+            
         # === PING ===
         if "ping" in acc["features"]:
             @client.on(events.NewMessage(pattern=r"^/ping$"))
@@ -1300,13 +1208,9 @@ async def main():
 
         # === DOWNLOADER ===
         if "downloader" in acc["features"]:
-            # pasang handler command /d atau /download
-            client.add_event_handler(
-                lambda e: handle_downloader(e, client),
-                events.NewMessage(pattern=r'^/(?:d|download)(?:\s+(.*))?$')
-            )
-            # pasang handler tombol YouTube
-            client.add_event_handler(youtube_button_handler, events.CallbackQuery)
+            @client.on(events.NewMessage(pattern=r'^/(d|download)(?:\s+|$)(.*)'))
+            async def downloader_handler(event, c=client):
+                await handle_downloader(event, c)
 
         # === CLEAR CHANNEL (KHUSUS CHANNEL) ===
         if "clearch" in acc["features"]:
@@ -1322,10 +1226,12 @@ async def main():
 
         # === AUTO-PIN (KHUSUS PRIVATE) ===
         if "autopin" in acc["features"]:
-        client.add_event_handler(
+          client.add_event_handler(
             lambda e: autopin_handler(e, client, acc.get("autopin_keywords", [])),
             events.NewMessage()
-        )
+            )
+        
+
         # === INFO RESTART ===
         text = (
             f"♻️ **Ubot Restart (Railway)**\n"
