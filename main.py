@@ -360,34 +360,22 @@ async def handle_save_command(event, client):
         return
     
     input_text = event.pattern_match.group(2).strip()
+    reply = await event.get_reply_message() if event.is_reply else None
 
-    if not input_text:
-        if event.is_reply:
-            reply = await event.get_reply_message()
-            if reply and reply.message:
-                input_text = reply.message.strip()
-            else:
-                await event.reply("❌ Pesan balasan tidak berisi teks.")
-                return
-        else:
-            await event.reply("❌ Kirim link seperti `https://t.me/c/xxx/yyy`.")
-            return
-
-    parts = input_text.split(maxsplit=1)
-    target_chat_raw = None
+    target_chat = event.chat_id
     links_part = input_text
 
-    if len(parts) == 2:
-        possible_target = parts[0]
-        if re.match(r'^@?[a-zA-Z0-9_]+$', possible_target) or re.match(r'^-?\d+$', possible_target):
-            target_chat_raw = possible_target
-            links_part = parts[1]
-
-    if target_chat_raw:
+    # === PATCH: kalau input hanya target chat ===
+    if input_text and (re.match(r'^@?[a-zA-Z0-9_]+$', input_text) or re.match(r'^-?\d+$', input_text)):
+        target_chat_raw = input_text
         target_chat = int(target_chat_raw) if target_chat_raw.lstrip("-").isdigit() else target_chat_raw
-    else:
-        target_chat = None
+        if reply and reply.message:
+            links_part = reply.message.strip()
+        else:
+            await event.reply("❌ Harus reply pesan berisi link kalau cuma kasih target chat.")
+            return
 
+    # === Ambil semua link ===
     matches = link_regex.findall(links_part)
     if not matches:
         await event.reply("❌ Tidak ada link valid.")
@@ -402,7 +390,6 @@ async def handle_save_command(event, client):
         await loading.delete()
     except:
         pass
-
 
 # === FITUR: CLEAR CHANNEL (KHUSUS CHANNEL) ===
 async def clearch_handler(event, client):
@@ -503,6 +490,193 @@ async def autopin_handler(event, client, keywords):
             await client.pin_message(event.chat_id, event.message.id)
         except:
             pass
+
+
+# === Regex untuk ambil semua URL ===
+url_regex = re.compile(r'https?://[^\s]+', re.IGNORECASE)
+
+# === Validasi & Sanitasi URL ===
+def is_valid_url(url):
+    try:
+        result = urlparse(url)
+        return all([result.scheme in ['http', 'https'], result.netloc])
+    except:
+        return False
+
+def sanitize_url(url):
+    parsed = urlparse(url)
+    tracking_params = ["utm_source","utm_medium","utm_campaign","fbclid","gclid","_gl"]
+    query_params = parse_qs(parsed.query)
+    for param in tracking_params:
+        query_params.pop(param, None)
+    clean_query = urlencode(query_params, doseq=True)
+    clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+    if clean_query:
+        clean_url += f"?{clean_query}"
+    return clean_url.strip()
+
+# === Deteksi platform ===
+PLATFORM_PATTERNS = {
+    'tiktok': re.compile(r'(?:^|\.)tiktok\.com', re.IGNORECASE),
+    'instagram': re.compile(r'(?:^|\.)instagram\.com|instagr\.am', re.IGNORECASE),
+}
+
+def detect_platform(url):
+    for platform, pattern in PLATFORM_PATTERNS.items():
+        if pattern.search(url):
+            return platform
+    return None
+
+# === TikTok Downloader ===
+async def download_tiktok(url):
+    try:
+        headers = {
+            'Accept': 'application/json, text/javascript, */*; q=0.01',
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            'Origin': 'https://www.tikwm.com',
+            'Referer': 'https://www.tikwm.com/',
+            'User-Agent': 'Mozilla/5.0'
+        }
+        params = {'url': url, 'hd': '1'}
+        response = requests.post('https://www.tikwm.com/api/', headers=headers, params=params, timeout=15)
+        response.raise_for_status()
+        json_data = response.json()
+        res = json_data.get('data')
+        if not res:
+            return {'success': False, 'message': 'Gagal ambil data TikTok'}
+
+        return {
+            'success': True,
+            'platform': 'TikTok',
+            'type': 'video',
+            'video': {
+                'watermark': res.get('wmplay'),
+                'nowatermark': res.get('play'),
+                'nowatermark_hd': res.get('hdplay')
+            },
+            'author': res.get('author', {}),
+            'title': res.get('title', ''),
+            'duration': res.get('duration', 0),
+            'stats': {
+                'views': res.get('play_count', 0),
+                'likes': res.get('digg_count', 0),
+                'comments': res.get('comment_count', 0),
+            }
+        }
+    except Exception as e:
+        return {'success': False, 'message': f'Error TikTok: {e}'}
+
+# === Instagram Downloader ===
+async def download_instagram(url):
+    try:
+        headers = {
+            'Accept': 'application/json, text/plain, */*',
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            'Origin': 'https://yt1s.io',
+            'Referer': 'https://yt1s.io/',
+            'User-Agent': 'Mozilla/5.0'
+        }
+        data = {'q': url, 'w': '', 'p': 'home', 'lang': 'en'}
+        response = requests.post('https://yt1s.io/api/ajaxSearch', headers=headers, data=data, timeout=15)
+        response.raise_for_status()
+        html = response.json().get('data', '')
+        if not html:
+            return {'success': False, 'message': 'Tidak ada data Instagram'}
+
+        soup = BeautifulSoup(html, 'html.parser')
+        links = [a['href'] for a in soup.find_all('a', href=True) if a['href'].startswith('http')]
+        return {'success': True, 'platform': 'Instagram', 'links': links}
+    except Exception as e:
+        return {'success': False, 'message': f'Error Instagram: {e}'}
+
+# === Handler utama ===
+async def handle_downloader(event, client):
+    if not event.is_private:
+        return
+    me = await client.get_me()
+    if event.sender_id != me.id:
+        return
+
+    input_text = event.pattern_match.group(2).strip() if event.pattern_match.group(2) else ''
+    if not input_text and event.is_reply:
+        reply = await event.get_reply_message()
+        if reply and reply.message:
+            input_text = reply.message.strip()
+
+    if not input_text:
+        await event.reply("❌ Kirim link TikTok/Instagram atau reply pesan yang berisi link.")
+        return
+
+    # === PATCH: cek apakah ada target chat di depan ===
+    parts = input_text.split(maxsplit=1)
+    target_chat_raw = None
+    links_part = input_text
+    if len(parts) == 2:
+        possible_target = parts[0]
+        if re.match(r'^@?[a-zA-Z0-9_]+$', possible_target) or re.match(r'^-?\d+$', possible_target):
+            target_chat_raw = possible_target
+            links_part = parts[1]
+
+    if target_chat_raw:
+        target_chat = int(target_chat_raw) if target_chat_raw.lstrip("-").isdigit() else target_chat_raw
+    else:
+        target_chat = event.chat_id
+
+    # === Ambil semua link dari teks ===
+    links = url_regex.findall(links_part)
+    if not links:
+        await event.reply("❌ Tidak ada link valid ditemukan.")
+        return
+
+    loading = await event.reply(f"⏳ Memproses {len(links)} link...")
+
+    for link in links:
+        if not is_valid_url(link):
+            await client.send_message(target_chat, f"❌ Bukan link valid: {link}")
+            continue
+
+        clean_url = sanitize_url(link)
+        platform = detect_platform(clean_url)
+        if not platform:
+            await client.send_message(target_chat, f"❌ Platform tidak didukung: {link}")
+            continue
+
+        try:
+            if platform == 'tiktok':
+                result = await download_tiktok(clean_url)
+                if result['success']:
+                    video_url = result['video'].get('nowatermark_hd') or result['video'].get('nowatermark')
+                    if video_url:
+                        res = requests.get(video_url, timeout=60, stream=True)
+                        if res.status_code == 200:
+                            fname = f"tiktok_{int(datetime.now().timestamp())}.mp4"
+                            with open(fname, 'wb') as f:
+                                for chunk in res.iter_content(8192):
+                                    f.write(chunk)
+                            await client.send_file(target_chat, fname,
+                                caption=f"📹 TikTok: {result['title']}\n❤️ {result['stats']['likes']:,} Likes")
+                            os.remove(fname)
+                        else:
+                            await client.send_message(target_chat, f"🔗 [Download Video]({video_url})")
+                else:
+                    await client.send_message(target_chat, f"❌ {result['message']} untuk {link}")
+
+            elif platform == 'instagram':
+                result = await download_instagram(clean_url)
+                if result['success']:
+                    for media_url in result['links']:
+                        await client.send_message(target_chat, f"🔗 {media_url}")
+                else:
+                    await client.send_message(target_chat, f"❌ {result['message']} untuk {link}")
+
+        except Exception as e:
+            await client.send_message(target_chat, f"⚠ Error {platform}: {e}")
+
+    try:
+        await loading.delete()
+    except:
+        pass
+    
 
 
 # ========== BAGIAN 3 ==========
