@@ -1266,10 +1266,13 @@ async def main():
 
         # === DOWNLOADER ===
         if "downloader" in acc["features"]:
-            @client.on(events.NewMessage(pattern=r'^/(d|download)(?:\s+|$)(.*)'))
+            # pasang handler command /d atau /download
+            client.add_event_handler(
+                lambda e: handle_downloader(e, client),
+                events.NewMessage(pattern=r"^/(?:d|download)(?:\s+(.*))?$")
+            )
+            # pasang handler tombol YouTube
             client.add_event_handler(youtube_button_handler, events.CallbackQuery)
-            async def downloader_handler(event, c=client):
-                await handle_downloader(event, c)
 
         # === CLEAR CHANNEL (KHUSUS CHANNEL) ===
         if "clearch" in acc["features"]:
