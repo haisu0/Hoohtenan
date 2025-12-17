@@ -770,10 +770,10 @@ async def youtube_button_handler(event):
             filename = ydl.prepare_filename(info)
 
         caption = f"📹 **{info.get('title','YouTube')}**\n👤 {info.get('uploader','-')}"
-        await client.send_file(event.chat_id, filename, caption=caption)
+        await event.client.send_file(event.chat_id, filename, caption=caption)
         os.remove(filename)
     except Exception as e:
-        await client.send_message(event.chat_id, f"⚠️ Error download: {e}")
+        await event.client.send_message(event.chat_id, f"⚠️ Error download: {e}")
 
 async def handle_downloader(event, client):
     """Handler utama untuk command /d dan /download"""
@@ -1223,6 +1223,7 @@ async def main():
 
     for index, acc in enumerate(ACCOUNTS, start=1):
         client = TelegramClient(StringSession(acc["session"]), API_ID, API_HASH)
+        client.add_event_handler(youtube_button_handler, events.CallbackQuery)
         await client.start()
         akun_nama = f"Akun {index}"
 
