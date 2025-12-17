@@ -51,7 +51,7 @@ ACCOUNTS = [
           "tes spam forward doang",  # global, berlaku di semua chat
           {"chat_id": 7828063345, "triggers": ["al", "al azet"]},  # khusus channel ini
           {"chat_id": 5107687003, "triggers": ["bebih", "babe", "baby"]}
-          ]
+          ],
 
         "autopin_keywords": [
           "al azet",  # berlaku untuk semua chat
