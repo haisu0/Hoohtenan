@@ -784,7 +784,7 @@ async def handle_downloader(event, client):
     if event.sender_id != me.id:
         return
     
-    input_text = event.pattern_match.group(2).strip() if event.pattern_match.group(2) else ''
+    input_text = (event.pattern_match.group(2) or '').strip() if event.pattern_match.last_index >= 2 else ''
     
     if not input_text:
         if event.is_reply:
