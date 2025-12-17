@@ -359,7 +359,6 @@ async def handle_save_command(event, client):
     if event.sender_id != me.id:
         return
     
-    # PATCH: aman kalau cuma /s doang
     input_text = event.pattern_match.group(2).strip() if event.pattern_match.group(2) else ''
     reply = await event.get_reply_message() if event.is_reply else None
 
@@ -370,6 +369,7 @@ async def handle_save_command(event, client):
     if input_text and (re.match(r'^@?[a-zA-Z0-9_]+$', input_text) or re.match(r'^-?\d+$', input_text)):
         target_chat_raw = input_text
         target_chat = int(target_chat_raw) if target_chat_raw.lstrip("-").isdigit() else target_chat_raw
+        # ⬇️ ambil link dari reply, bukan dari input_text
         if reply and reply.message:
             links_part = reply.message.strip()
         else:
