@@ -1,120 +1,3 @@
-# ========== BAGIAN 1 ==========
-# IMPORT, KONFIG, ACCOUNTS, SETUP DASAR
-
-import asyncio
-import os
-import re
-from datetime import datetime
-from zoneinfo import ZoneInfo
-
-from telethon import TelegramClient, events
-from telethon.sessions import StringSession
-from flask import Flask
-from threading import Thread
-from telethon.tl.functions.users import GetFullUserRequest
-
-import requests
-from bs4 import BeautifulSoup
-from urllib.parse import urlparse, parse_qs, urlencode, unquote
-from telethon import types
-
-# === KONFIGURASI UTAMA ===
-API_ID = 20958475
-API_HASH = '1cfb28ef51c138a027786e43a27a8225'
-
-# === DAFTAR AKUN ===
-ACCOUNTS = [
-    {
-        "session": "1BVtsOIIBu4Z0S11NsMdWP8Ua-p8C4gFEBAyD0TGmshXRvGQNBYavPrKNFgcEXWz-sDT_w9HLML-9nMrSWTqAAfqvx4Y6157p30Gqy09ViCrgzKyfo7IEdhK7Tqnjlt5lSYwuhfalN4R4GtgjBoY7FQBH7EIYozqwxFp8U93PYdsqWKQdG_bhBqZ2I02dqOqOqc_feGpBFrTwLPLld_tPjIuvBk02zgUGV3E3vYdmdGx8gPFveGbSLLHJdHoFH-E-K_paygXWXVjFopilIAKl9fuw36Wjrd-ijV0OpRIfEEff3sH8jFoGQfdthUaZiLlcr4V373-eeh-LOAc8W-CxBhKDfDne0P0=",
-        "log_channel": -1003402358031,
-        "log_admin": 1488611909,
-        "features": [
-            "anti_view_once",
-            "ping",
-            "heartbeat",
-            "scheduled_message",
-            "spam_forward",
-            "save_media",
-            "clearch",
-            "whois",
-            "autopin",
-            "downloader",
-        ],
-        "scheduled_targets": [
-            {
-                "chat_id": 7828063345,
-                "text_pagi": "☀️ Gut Pagi 🌄 🌅",
-                "text_malam": "🌑 🌕 Gut Malam 🌌",
-            }
-        ],
-        "spam_triggers": [
-          "tes spam forward doang",  # global, berlaku di semua chat
-          {"chat_id": 7828063345, "triggers": ["al azet"]},  # khusus channel ini
-          {"chat_id": 5107687003, "triggers": ["bebih", "babe", "baby"]}
-          ],
-
-        "autopin_keywords": [
-          "al azet",  # berlaku untuk semua chat
-          {"chat_id": 7828063345, "keywords": ["al-azet", "al_azet"]},
-          ]
-
-    }
-]
-
-# list global client (diisi di main)
-clients = []
-
-# waktu start untuk /ping uptime
-start_time_global = datetime.now()
-
-# === FITUR: ANTI VIEW-ONCE ===
-async def anti_view_once_and_ttl(event, client, log_channel, log_admin):
-    if not event.is_private:
-        return
-
-    msg = event.message
-    ttl = getattr(msg.media, "ttl_seconds", None)
-
-    if not msg.media or not ttl:
-        return
-
-    try:
-        sender = await msg.get_sender()
-        sender_name = sender.first_name or "Unknown"
-        sender_username = f"@{sender.username}" if sender.username else "-"
-        sender_id = sender.id
-
-        chat = await event.get_chat()
-        chat_title = getattr(chat, "title", "Private Chat")
-        chat_id = chat.id
-
-        caption = (
-            "🔓 **MEDIA VIEW-ONCE / TIMER TERTANGKAP**\n\n"
-            f"👤 **Pengirim:** `{sender_name}`\n"
-            f"🔗 **Username:** {sender_username}\n"
-            f"🆔 **User ID:** `{sender_id}`\n\n"
-            f"💬 **Dari Chat:** `{chat_title}`\n"
-            f"🆔 **Chat ID:** `{chat_id}`\n\n"
-            f"⏱ **Timer:** `{ttl} detik`\n"
-            f"📥 **Status:** Berhasil disalin ✅"
-        )
-
-        folder = "111AntiViewOnce"
-        os.makedirs(folder, exist_ok=True)
-        file = await msg.download_media(file=folder)
-
-        if log_channel:
-            await client.send_file(log_channel, file, caption=caption)
-        if log_admin:
-            await client.send_file(log_admin, file, caption=caption)
-
-        if file and os.path.exists(file):
-            os.remove(file)
-
-    except Exception as e:
-        if log_admin:
-            await client.send_message(log_admin, f"⚠ Error anti-viewonce: `{e}`")
-
 
 # ========== BAGIAN 1 ==========
 # IMPORT, KONFIG, ACCOUNTS, SETUP DASAR
@@ -234,16 +117,15 @@ async def anti_view_once_and_ttl(event, client, log_channel, log_admin):
             await client.send_message(log_admin, f"⚠ Error anti-viewonce: `{e}`")
 
 
-# === FITUR: AUTO FORWARD SPAM ===
 # === FITUR: AUTO FORWARD SPAM ===
 async def auto_forward_spam(event, client, spam_config):
     if not event.is_private:
         return
 
-    msg_text = (event.message.message or "").lower().strip()
+    msg_text = normalize_text(event.message.message or "")
 
     # === GLOBAL TRIGGERS (string) ===
-    global_triggers = [t.lower() for t in spam_config if isinstance(t, str)]
+    global_triggers = [normalize_text(t) for t in spam_config if isinstance(t, str)]
     if any(trigger in msg_text for trigger in global_triggers):
         sender = await event.get_sender()
         sender_id = sender.id
@@ -259,7 +141,7 @@ async def auto_forward_spam(event, client, spam_config):
     for entry in spam_config:
         if isinstance(entry, dict):
             if entry.get("chat_id") == event.chat_id:
-                chat_triggers = [t.lower() for t in entry.get("triggers", [])]
+                chat_triggers = [normalize_text(t) for t in entry.get("triggers", [])]
                 if any(trigger in msg_text for trigger in chat_triggers):
                     sender = await event.get_sender()
                     sender_id = sender.id
@@ -270,7 +152,6 @@ async def auto_forward_spam(event, client, spam_config):
                         except:
                             break
                     return
-
 # === FITUR: PING ===
 async def ping_handler(event, client):
     if not event.is_private:
