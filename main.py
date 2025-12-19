@@ -35,7 +35,7 @@ ACCOUNTS = [
             "clearch",
             "whois",
             "downloader",
-        ],
+        ]
 
     }
 ]
