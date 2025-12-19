@@ -350,7 +350,6 @@ async def download_facebook(url):
                 "hx-post": "/process",
                 "hx-swap": "innerHTML",
             },
-            timeout=15,
         )
         response.raise_for_status()
         html = response.text
@@ -362,10 +361,10 @@ async def download_facebook(url):
         preview = preview["src"] if preview else ""
 
         results = []
-        # cari semua link download
+        # cari semua link .mp4
         for a in soup.find_all("a", href=True):
             href = a["href"]
-            if href.endswith(".mp4"):
+            if ".mp4" in href:
                 text = a.get_text(strip=True)
                 quality = int(re.search(r"(\d+)", text).group(1)) if re.search(r"(\d+)", text) else 0
                 type_ = "HD" if "HD" in text.upper() else "SD"
@@ -390,6 +389,7 @@ async def download_facebook(url):
         }
     except Exception as e:
         return {"success": False, "message": f"Error Facebook: {str(e)}"}
+
 
 async def send_tiktok_result(event, client, result, send_to):
     if result['type'] == 'video':
