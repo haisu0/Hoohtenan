@@ -350,6 +350,7 @@ async def download_facebook(url):
                 "hx-post": "/process",
                 "hx-swap": "innerHTML",
             },
+            timeout=15,
         )
         response.raise_for_status()
         html = response.text
@@ -361,15 +362,14 @@ async def download_facebook(url):
         preview = preview["src"] if preview else ""
 
         results = []
-        # cari semua link .mp4
-        for a in soup.find_all("a", href=True):
-            href = a["href"]
-            if ".mp4" in href:
-                text = a.get_text(strip=True)
-                quality = int(re.search(r"(\d+)", text).group(1)) if re.search(r"(\d+)", text) else 0
-                type_ = "HD" if "HD" in text.upper() else "SD"
-                results.append({"quality": quality, "type": type_, "url": href})
+        for item in soup.select(".results-list-item"):
+            quality_text = item.get_text(strip=True)
+            quality = int(re.search(r"(\d+)", quality_text).group(1)) if re.search(r"(\d+)", quality_text) else 0
+            type_ = "HD" if "HD" in quality_text else "SD"
+            link = item.find("a")["href"] if item.find("a") else ""
+            results.append({"quality": quality, "type": type_, "url": link})
 
+        # pilih kualitas terbaik
         best = None
         if results:
             hd = [r for r in results if r["type"] == "HD"]
@@ -675,27 +675,18 @@ async def send_facebook_result(event, client, result, send_to):
     )
 
     try:
-        # coba download dulu
         video_res = requests.get(best["url"], timeout=60, stream=True)
         if video_res.status_code == 200:
             filename = f"facebook_{int(datetime.now().timestamp())}.mp4"
             with open(filename, "wb") as f:
                 for chunk in video_res.iter_content(chunk_size=8192):
                     f.write(chunk)
-
             await client.send_file(send_to, filename, caption=caption)
             os.remove(filename)
-            return  # sukses, jangan kirim link lagi
-
-        # kalau status bukan 200 → fallback
-        await client.send_message(send_to, f"{caption}\n\n🔗 [Download Video]({best['url']})")
-
+        else:
+            await client.send_message(send_to, f"{caption}\n\n🔗 [Download Video]({best['url']})")
     except Exception as e:
-        # kalau error saat download → fallback
-        await client.send_message(
-            send_to,
-            f"{caption}\n\n🔗 [Download Video]({best['url']})\n⚠️ Error: {e}"
-        )
+        await client.send_message(send_to, f"{caption}\n\n🔗 [Download Video]({best['url']})\n⚠️ Error: {e}")
 
 
 async def process_downloader_link(event, client, url, send_to):
