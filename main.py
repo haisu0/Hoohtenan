@@ -350,7 +350,7 @@ async def download_facebook(url):
                 "hx-post": "/process",
                 "hx-swap": "innerHTML",
             },
-            timeout=15,
+            timeout=60,
         )
         response.raise_for_status()
         html = response.text
