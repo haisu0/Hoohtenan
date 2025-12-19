@@ -675,18 +675,27 @@ async def send_facebook_result(event, client, result, send_to):
     )
 
     try:
+        # coba download dulu
         video_res = requests.get(best["url"], timeout=60, stream=True)
         if video_res.status_code == 200:
             filename = f"facebook_{int(datetime.now().timestamp())}.mp4"
             with open(filename, "wb") as f:
                 for chunk in video_res.iter_content(chunk_size=8192):
                     f.write(chunk)
+
             await client.send_file(send_to, filename, caption=caption)
             os.remove(filename)
-        else:
-            await client.send_message(send_to, f"{caption}\n\n🔗 [Download Video]({best['url']})")
+            return  # sukses, jangan kirim link lagi
+
+        # kalau status bukan 200 → fallback
+        await client.send_message(send_to, f"{caption}\n\n🔗 [Download Video]({best['url']})")
+
     except Exception as e:
-        await client.send_message(send_to, f"{caption}\n\n🔗 [Download Video]({best['url']})\n⚠️ Error: {e}")
+        # kalau error saat download → fallback
+        await client.send_message(
+            send_to,
+            f"{caption}\n\n🔗 [Download Video]({best['url']})\n⚠️ Error: {e}"
+        )
 
 
 async def process_downloader_link(event, client, url, send_to):
