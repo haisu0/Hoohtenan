@@ -277,6 +277,7 @@ def sanitize_url(url):
 PLATFORM_PATTERNS = {
     'tiktok': re.compile(r'(?:^|\.)tiktok\.com', re.IGNORECASE),
     'instagram': re.compile(r'(?:^|\.)instagram\.com|instagr\.am', re.IGNORECASE),
+    'facebook': re.compile(r'(?:^|\.)facebook\.com|fb\.watch', re.IGNORECASE),
 }
 
 def detect_platform(url):
@@ -296,6 +297,14 @@ def get_best_video_url(video_data, platform='tiktok'):
             return video_data['nowatermark']
         elif video_data.get('watermark'):
             return video_data['watermark']
+    elif platform == 'facebook':
+        # Prioritas: HD > SD
+        hd = next((item for item in video_data if item.get('type') == 'HD'), None)
+        if hd:
+            return hd['url']
+        sd = next((item for item in video_data if item.get('type') == 'SD'), None)
+        if sd:
+            return sd['url']
     return None
 
 async def download_tiktok(url, quality='best'):
@@ -456,6 +465,61 @@ async def download_instagram(url, quality='best'):
         
     except Exception as e:
         return {'success': False, 'message': f'Error Instagram: {str(e)}'}
+        
+async def download_facebook(url, quality='best'):
+    """Handler untuk download Facebook - adapted from JS code"""
+    try:
+        headers = {
+            'hx-current-url': 'https://getmyfb.com/',
+            'hx-request': 'true',
+            'hx-target': '#private-video-downloader' if 'share' in url else '#target',
+            'hx-trigger': 'form',
+            'hx-post': '/process',
+            'hx-swap': 'innerHTML',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        
+        data = {
+            'id': unquote(url),
+            'locale': 'en'
+        }
+        
+        response = requests.post('https://getmyfb.com/process', headers=headers, data=data, timeout=15)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        caption = soup.select_one('.results-item-text')
+        caption = caption.text.strip() if caption else ""
+        
+        preview = soup.select_one('.results-item-image')
+        preview = preview['src'] if preview else ""
+        
+        results = []
+        for item in soup.select('.results-list-item'):
+            link = item.select_one('a')
+            if link:
+                title = link.get('title', '')
+                href = link.get('href', '')
+                quality_type = 'HD' if 'HD' in title else 'SD'
+                results.append({
+                    'quality': int(title.split()[0]) if title.split()[0].isdigit() else 0,
+                    'type': quality_type,
+                    'url': href
+                })
+        
+        result = {
+            'success': True,
+            'platform': 'Facebook',
+            'caption': caption,
+            'preview': preview,
+            'results': results
+        }
+        
+        return result
+        
+    except Exception as e:
+        return {'success': False, 'message': f'Error Facebook: {str(e)}'}
 
 async def handle_downloader(event, client):
     """Handler utama untuk command /d dan /download"""
@@ -509,6 +573,8 @@ async def handle_downloader(event, client):
                 result = await download_tiktok(url)
             elif platform == 'instagram':
                 result = await download_instagram(url)
+            elif platform == 'facebook':
+                result = await download_facebook(url)
             else:
                 continue
 
@@ -849,6 +915,54 @@ async def send_download_result(client, target_chat, result, platform):
                         await client.send_message(target_chat, f"{media_type_emoji} **Instagram {media_type_text} {idx}**\n\n🔗 [Download]({media_item['url']})")
             else:
                 await client.send_message(target_chat, "❌ Tidak ada media yang ditemukan")
+                
+        elif platform == 'facebook':  # Tambah Facebook
+            if result['results']:
+                # Pilih kualitas terbaik
+                best_url = get_best_video_url(result['results'], 'facebook')
+                
+                if best_url:
+                    caption = f"📹 **Facebook Video**\n\n{result['caption']}"
+                    
+                    try:
+                        video_res = requests.get(best_url, timeout=60, stream=True)
+                        if video_res.status_code == 200:
+                            video_filename = f"facebook_{int(datetime.now().timestamp())}.mp4"
+                            with open(video_filename, 'wb') as f:
+                                for chunk in video_res.iter_content(chunk_size=8192):
+                                    f.write(chunk)
+                            
+                            try:
+                                await client.send_file(target_chat, video_filename, caption=caption)
+                                os.remove(video_filename)
+                            except Exception as e:
+                                await client.send_message(event.chat_id, f"❌ Gagal kirim video ke {target_chat}: {str(e)}")
+                                os.remove(video_filename)
+                                return
+                        else:
+                            try:
+                                await client.send_message(target_chat, f"{caption}\n\n🔗 [Download]({best_url})")
+                            except Exception as e:
+                                await client.send_message(event.chat_id, f"❌ Gagal kirim pesan ke {target_chat}: {str(e)}")
+                                return
+                    except Exception as e:
+                        try:
+                            await client.send_message(target_chat, f"{caption}\n\n🔗 [Download]({best_url})\n\n⚠️ Error: {str(e)}")
+                        except Exception as e2:
+                            await client.send_message(event.chat_id, f"❌ Gagal kirim pesan ke {target_chat}: {str(e2)}")
+                            return
+                else:
+                    try:
+                        await client.send_message(target_chat, "❌ Tidak ada video yang ditemukan")
+                    except Exception as e:
+                        await client.send_message(event.chat_id, f"❌ Gagal kirim pesan ke {target_chat}: {str(e)}")
+                        return
+            else:
+                try:
+                    await client.send_message(target_chat, "❌ Tidak ada media yang ditemukan")
+                except Exception as e:
+                    await client.send_message(event.chat_id, f"❌ Gagal kirim pesan ke {target_chat}: {str(e)}")
+                    return
         
     except Exception as e:
         await client.send_message(target_chat, f"❌ Error mengirim hasil: {str(e)}")
