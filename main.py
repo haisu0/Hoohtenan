@@ -470,22 +470,23 @@ async def handle_downloader(event, client):
     reply = await event.get_reply_message() if event.is_reply else None
 
     target_chat = event.chat_id
-    links_text = input_text
+    links_text = ''
 
-    # Parse target_chat jika input dimulai dengan chat ID (angka atau username)
-    if input_text and (re.match(r'^@?[a-zA-Z0-9_]+$', input_text) or re.match(r'^-?\d+$', input_text)):
-        target_chat_raw = input_text
+    # Parsing input_text: split menjadi target_chat dan links_text
+    parts = input_text.split()
+    if parts and (re.match(r'^@?[a-zA-Z0-9_]+$', parts[0]) or re.match(r'^-?\d+$', parts[0])):
+        target_chat_raw = parts[0]
         target_chat = int(target_chat_raw) if target_chat_raw.lstrip("-").isdigit() else target_chat_raw
-        # Ambil link dari reply jika ada
-        if reply and reply.message:
-            links_text = reply.message.strip()
-        else:
-            await event.reply("❌ Harus reply pesan berisi link kalau cuma kasih target chat.")
-            return
+        links_text = ' '.join(parts[1:])  # Sisanya sebagai links_text
 
-    # Jika input kosong tapi ada reply, ambil dari reply
+    # Jika links_text kosong, ambil dari reply jika ada
     if not links_text and reply and reply.message:
         links_text = reply.message.strip()
+
+    # Jika masih kosong, error
+    if not links_text:
+        await event.reply("❌ Tidak ada link yang diberikan. Gunakan /d link, /d chatid link, atau reply pesan berisi link.")
+        return
 
     # Ekstrak semua URL dari teks
     url_pattern = re.compile(r'https?://[^\s]+')
