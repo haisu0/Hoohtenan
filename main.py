@@ -245,6 +245,8 @@ async def whois_handler(event, client):
     except Exception as e:
         await event.reply(f"{text}\n\n⚠ Error ambil foto profil: {e}")
 
+
+
 # === FITUR: DOWNLOADER ===
 
 def is_valid_url(url):
@@ -275,7 +277,6 @@ def sanitize_url(url):
 PLATFORM_PATTERNS = {
     'tiktok': re.compile(r'(?:^|\.)tiktok\.com', re.IGNORECASE),
     'instagram': re.compile(r'(?:^|\.)instagram\.com|instagr\.am', re.IGNORECASE),
-    'facebook': re.compile(r'(?:^|\.)facebook\.com|fb\.watch', re.IGNORECASE),
 }
 
 def detect_platform(url):
@@ -295,14 +296,6 @@ def get_best_video_url(video_data, platform='tiktok'):
             return video_data['nowatermark']
         elif video_data.get('watermark'):
             return video_data['watermark']
-    elif platform == 'facebook':
-        # Prioritas: HD > SD
-        hd = next((item for item in video_data if item.get('type') == 'HD'), None)
-        if hd:
-            return hd['url']
-        sd = next((item for item in video_data if item.get('type') == 'SD'), None)
-        if sd:
-            return sd['url']
     return None
 
 async def download_tiktok(url, quality='best'):
@@ -464,63 +457,7 @@ async def download_instagram(url, quality='best'):
     except Exception as e:
         return {'success': False, 'message': f'Error Instagram: {str(e)}'}
 
-async def download_facebook(url, quality='best'):
-    """Handler untuk download Facebook - adapted from JS code"""
-    try:
-        headers = {
-            'hx-current-url': 'https://getmyfb.com/',
-            'hx-request': 'true',
-            'hx-target': '#private-video-downloader' if 'share' in url else '#target',
-            'hx-trigger': 'form',
-            'hx-post': '/process',
-            'hx-swap': 'innerHTML',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-        
-        data = {
-            'id': unquote(url),
-            'locale': 'en'
-        }
-        
-        response = requests.post('https://getmyfb.com/process', headers=headers, data=data, timeout=15)
-        response.raise_for_status()
-        
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        caption = soup.select_one('.results-item-text')
-        caption = caption.text.strip() if caption else ""
-        
-        preview = soup.select_one('.results-item-image')
-        preview = preview['src'] if preview else ""
-        
-        results = []
-        for item in soup.select('.results-list-item'):
-            link = item.select_one('a')
-            if link:
-                title = link.get('title', '')
-                href = link.get('href', '')
-                quality_type = 'HD' if 'HD' in title else 'SD'
-                results.append({
-                    'quality': int(title.split()[0]) if title.split()[0].isdigit() else 0,
-                    'type': quality_type,
-                    'url': href
-                })
-        
-        result = {
-            'success': True,
-            'platform': 'Facebook',
-            'caption': caption,
-            'preview': preview,
-            'results': results
-        }
-        
-        return result
-        
-    except Exception as e:
-        return {'success': False, 'message': f'Error Facebook: {str(e)}'}
-
 async def handle_downloader(event, client):
-    """Handler utama untuk command /d dan /download"""
     if not event.is_private:
         return
     
@@ -534,37 +471,30 @@ async def handle_downloader(event, client):
     target_chat = event.chat_id
     links_text = ''
 
-    # Parsing input_text: split menjadi target_chat dan links_text
     parts = input_text.split()
     if parts and (re.match(r'^@?[a-zA-Z0-9_]+$', parts[0]) or re.match(r'^-?\d+$', parts[0])):
+        # Pola 2 & 4 → ada target chat
         target_chat_raw = parts[0]
         target_chat = int(target_chat_raw) if target_chat_raw.lstrip("-").isdigit() else target_chat_raw
-        links_text = ' '.join(parts[1:])  # Sisanya sebagai links_text
+        links_text = ' '.join(parts[1:])
+    else:
+        # Pola 1 & 3 → tidak ada target chat
+        links_text = input_text
 
-    # Jika links_text kosong, ambil dari reply jika ada
+    # Kalau link kosong tapi ada reply → ambil dari reply
     if not links_text and reply and reply.message:
         links_text = reply.message.strip()
 
-    # Jika masih kosong, error dengan pesan spesifik
     if not links_text:
-        if reply:
-            await event.reply("❌ Pesan reply tidak berisi link.")
-        else:
-            await event.reply("❌ Tidak ada link yang diberikan. Gunakan /d link, /d chatid link, atau reply pesan berisi link.")
+        await event.reply("❌ Tidak ada link valid.")
         return
 
-    # Ekstrak semua URL dari teks, tambah https:// jika perlu
-    url_pattern = re.compile(r'(https?://[^\s]+|(?:www\.)?[a-zA-Z0-9-]+\.[a-zA-Z]{2,}[^\s]*)', re.IGNORECASE)
+    url_pattern = re.compile(r'https?://[^\s]+')
     urls = url_pattern.findall(links_text)
-    valid_urls = []
-    for url in urls:
-        if not url.startswith('http'):
-            url = 'https://' + url
-        if is_valid_url(url):
-            valid_urls.append(sanitize_url(url))
+    valid_urls = [sanitize_url(url) for url in urls if is_valid_url(url)]
 
     if not valid_urls:
-        await event.reply("❌ Tidak ada link valid. Pastikan link dimulai dengan https:// atau www., contoh: /d https://tiktok.com/link")
+        await event.reply("❌ Tidak ada link valid.")
         return
 
     loading = await event.reply(f"⏳ Memproses {len(valid_urls)} link...")
@@ -572,7 +502,7 @@ async def handle_downloader(event, client):
     for url in valid_urls:
         platform = detect_platform(url)
         if not platform:
-            await event.reply(f"❌ Platform tidak didukung untuk link: {url}")
+            await event.reply(f"❌ Platform tidak didukung: {url}")
             continue
 
         try:
@@ -586,10 +516,9 @@ async def handle_downloader(event, client):
                 continue
 
             if not result.get('success'):
-                await event.reply(f"❌ {result.get('message', 'Gagal mengunduh')} untuk {url}")
+                await event.reply(f"❌ {result.get('message', 'Gagal')} untuk {url}")
                 continue
 
-            # Kirim hasil ke target_chat
             await send_download_result(client, target_chat, result, platform, event.chat_id)
 
         except Exception as e:
@@ -600,7 +529,7 @@ async def handle_downloader(event, client):
     except:
         pass
 
-async def send_download_result(client, target_chat, result, platform, event_chat_id):
+async def send_download_result(client, target_chat, result, platform):
     """Fungsi untuk mengirim hasil download ke target_chat"""
     try:
         if platform == 'tiktok':
@@ -609,7 +538,7 @@ async def send_download_result(client, target_chat, result, platform, event_chat
                 video_url = get_best_video_url(result['video'], 'tiktok')
                 
                 if not video_url:
-                    await client.send_message(event_chat_id, f"❌ Tidak ada URL video yang valid untuk TikTok")
+                    await client.send_message(event.chat_id, f"❌ Tidak ada URL video yang valid untuk TikTok")
                     return
                 
                 caption = (
@@ -635,20 +564,20 @@ async def send_download_result(client, target_chat, result, platform, event_chat
                             await client.send_file(target_chat, video_filename, caption=caption)
                             os.remove(video_filename)
                         except Exception as e:
-                            await client.send_message(event_chat_id, f"❌ Gagal kirim video ke {target_chat}: {str(e)}")
+                            await client.send_message(event.chat_id, f"❌ Gagal kirim video ke {target_chat}: {str(e)}")
                             os.remove(video_filename)
                             return
                     else:
                         try:
                             await client.send_message(target_chat, f"{caption}\n\n🔗 [Download Video]({video_url})")
                         except Exception as e:
-                            await client.send_message(event_chat_id, f"❌ Gagal kirim pesan ke {target_chat}: {str(e)}")
+                            await client.send_message(event.chat_id, f"❌ Gagal kirim pesan ke {target_chat}: {str(e)}")
                             return
                 except Exception as e:
                     try:
                         await client.send_message(target_chat, f"{caption}\n\n🔗 [Download Video]({video_url})\n\n⚠️ Error: {str(e)}")
                     except Exception as e2:
-                        await client.send_message(event_chat_id, f"❌ Gagal kirim pesan ke {target_chat}: {str(e2)}")
+                        await client.send_message(event.chat_id, f"❌ Gagal kirim pesan ke {target_chat}: {str(e2)}")
                         return
                 
                 # Download and send audio/music if available
@@ -682,7 +611,7 @@ async def send_download_result(client, target_chat, result, platform, event_chat
                                 )
                                 os.remove(audio_filename)
                             except Exception as e:
-                                await client.send_message(event_chat_id, f"❌ Gagal kirim audio ke {target_chat}: {str(e)}")
+                                await client.send_message(event.chat_id, f"❌ Gagal kirim audio ke {target_chat}: {str(e)}")
                                 os.remove(audio_filename)
                     except Exception as e:
                         pass  # Silent fail for audio
@@ -721,7 +650,7 @@ async def send_download_result(client, target_chat, result, platform, event_chat
                         try:
                             await client.send_file(target_chat, chunk, caption=chunk_caption)
                         except Exception as e:
-                            await client.send_message(event_chat_id, f"❌ Gagal kirim gambar ke {target_chat}: {str(e)}")
+                            await client.send_message(event.chat_id, f"❌ Gagal kirim gambar ke {target_chat}: {str(e)}")
                             for f in all_files:
                                 try:
                                     os.remove(f)
@@ -739,7 +668,7 @@ async def send_download_result(client, target_chat, result, platform, event_chat
                     try:
                         await client.send_message(target_chat, f"{caption}\n\n⚠️ Gagal mengunduh gambar")
                     except Exception as e:
-                        await client.send_message(event_chat_id, f"❌ Gagal kirim pesan ke {target_chat}: {str(e)}")
+                        await client.send_message(event.chat_id, f"❌ Gagal kirim pesan ke {target_chat}: {str(e)}")
                         return
                 
                 # Send audio for slideshow too
@@ -773,7 +702,7 @@ async def send_download_result(client, target_chat, result, platform, event_chat
                                 )
                                 os.remove(audio_filename)
                             except Exception as e:
-                                await client.send_message(event_chat_id, f"❌ Gagal kirim audio ke {target_chat}: {str(e)}")
+                                await client.send_message(event.chat_id, f"❌ Gagal kirim audio ke {target_chat}: {str(e)}")
                                 os.remove(audio_filename)
                     except Exception as e:
                         pass  # Silent fail for audio
@@ -800,20 +729,20 @@ async def send_download_result(client, target_chat, result, platform, event_chat
                                 await client.send_file(target_chat, video_filename, caption=caption)
                                 os.remove(video_filename)
                             except Exception as e:
-                                await client.send_message(event_chat_id, f"❌ Gagal kirim video ke {target_chat}: {str(e)}")
+                                await client.send_message(event.chat_id, f"❌ Gagal kirim video ke {target_chat}: {str(e)}")
                                 os.remove(video_filename)
                                 return
                         else:
                             try:
                                 await client.send_message(target_chat, f"{caption}\n\n🔗 [Download]({video_url})")
                             except Exception as e:
-                                await client.send_message(event_chat_id, f"❌ Gagal kirim pesan ke {target_chat}: {str(e)}")
+                                await client.send_message(event.chat_id, f"❌ Gagal kirim pesan ke {target_chat}: {str(e)}")
                                 return
                     except Exception as e:
                         try:
                             await client.send_message(target_chat, f"{caption}\n\n🔗 [Download]({video_url})")
                         except Exception as e2:
-                            await client.send_message(event_chat_id, f"❌ Gagal kirim pesan ke {target_chat}: {str(e2)}")
+                            await client.send_message(event.chat_id, f"❌ Gagal kirim pesan ke {target_chat}: {str(e2)}")
                             return
                 else:
                     # Multiple videos - download semua
@@ -843,7 +772,7 @@ async def send_download_result(client, target_chat, result, platform, event_chat
                             try:
                                 await client.send_file(target_chat, chunk, caption=chunk_caption)
                             except Exception as e:
-                                await client.send_message(event_chat_id, f"❌ Gagal kirim video ke {target_chat}: {str(e)}")
+                                await client.send_message(event.chat_id, f"❌ Gagal kirim video ke {target_chat}: {str(e)}")
                                 for f in all_files:
                                     try:
                                         os.remove(f)
@@ -863,7 +792,7 @@ async def send_download_result(client, target_chat, result, platform, event_chat
                             try:
                                 await client.send_message(target_chat, f"📹 **Instagram Video {idx}**\n\n🔗 [Download]({video_item['url']})")
                             except Exception as e:
-                                await client.send_message(event_chat_id, f"❌ Gagal kirim pesan ke {target_chat}: {str(e)}")
+                                await client.send_message(event.chat_id, f"❌ Gagal kirim pesan ke {target_chat}: {str(e)}")
                                 return
                             
             elif result['type'] == 'images':
@@ -886,20 +815,20 @@ async def send_download_result(client, target_chat, result, platform, event_chat
                                 await client.send_file(target_chat, filename, caption=caption)
                                 os.remove(filename)
                             except Exception as e:
-                                await client.send_message(event_chat_id, f"❌ Gagal kirim gambar ke {target_chat}: {str(e)}")
+                                await client.send_message(event.chat_id, f"❌ Gagal kirim gambar ke {target_chat}: {str(e)}")
                                 os.remove(filename)
                                 return
                         else:
                             try:
                                 await client.send_message(target_chat, f"{caption}\n\n🔗 [Download]({img_url})")
                             except Exception as e:
-                                await client.send_message(event_chat_id, f"❌ Gagal kirim pesan ke {target_chat}: {str(e)}")
+                                await client.send_message(event.chat_id, f"❌ Gagal kirim pesan ke {target_chat}: {str(e)}")
                                 return
                     except:
                         try:
                             await client.send_message(target_chat, f"{caption}\n\n🔗 [Download]({img_url})")
                         except Exception as e:
-                            await client.send_message(event_chat_id, f"❌ Gagal kirim pesan ke {target_chat}: {str(e)}")
+                            await client.send_message(event.chat_id, f"❌ Gagal kirim pesan ke {target_chat}: {str(e)}")
                             return
                 else:
                     # Multiple images - download semua
@@ -928,7 +857,7 @@ async def send_download_result(client, target_chat, result, platform, event_chat
                             try:
                                 await client.send_file(target_chat, chunk, caption=chunk_caption)
                             except Exception as e:
-                                await client.send_message(event_chat_id, f"❌ Gagal kirim gambar ke {target_chat}: {str(e)}")
+                                await client.send_message(event.chat_id, f"❌ Gagal kirim gambar ke {target_chat}: {str(e)}")
                                 for f in all_files:
                                     try:
                                         os.remove(f)
@@ -948,7 +877,7 @@ async def send_download_result(client, target_chat, result, platform, event_chat
                             try:
                                 await client.send_message(target_chat, f"🖼 **Instagram Image {idx}**\n\n🔗 [Download]({img_item['url']})")
                             except Exception as e:
-                                await client.send_message(event_chat_id, f"❌ Gagal kirim pesan ke {target_chat}: {str(e)}")
+                                await client.send_message(event.chat_id, f"❌ Gagal kirim pesan ke {target_chat}: {str(e)}")
                                 return
                             
             elif result['type'] == 'mixed':
@@ -995,7 +924,7 @@ async def send_download_result(client, target_chat, result, platform, event_chat
                         try:
                             await client.send_file(target_chat, chunk, caption=chunk_caption)
                         except Exception as e:
-                            await client.send_message(event_chat_id, f"❌ Gagal kirim media ke {target_chat}: {str(e)}")
+                            await client.send_message(event.chat_id, f"❌ Gagal kirim media ke {target_chat}: {str(e)}")
                             for f in all_files:
                                 try:
                                     os.remove(f)
@@ -1017,65 +946,17 @@ async def send_download_result(client, target_chat, result, platform, event_chat
                         try:
                             await client.send_message(target_chat, f"{media_type_emoji} **Instagram {media_type_text} {idx}**\n\n🔗 [Download]({media_item['url']})")
                         except Exception as e:
-                            await client.send_message(event_chat_id, f"❌ Gagal kirim pesan ke {target_chat}: {str(e)}")
+                            await client.send_message(event.chat_id, f"❌ Gagal kirim pesan ke {target_chat}: {str(e)}")
                             return
             else:
                 try:
                     await client.send_message(target_chat, "❌ Tidak ada media yang ditemukan")
                 except Exception as e:
-                    await client.send_message(event_chat_id, f"❌ Gagal kirim pesan ke {target_chat}: {str(e)}")
-                    return
-        
-        elif platform == 'facebook':
-            if result['results']:
-                # Pilih kualitas terbaik
-                best_url = get_best_video_url(result['results'], 'facebook')
-                
-                if best_url:
-                    caption = f"📹 **Facebook Video**\n\n{result['caption']}"
-                    
-                    try:
-                        video_res = requests.get(best_url, timeout=60, stream=True)
-                        if video_res.status_code == 200:
-                            video_filename = f"facebook_{int(datetime.now().timestamp())}.mp4"
-                            with open(video_filename, 'wb') as f:
-                                for chunk in video_res.iter_content(chunk_size=8192):
-                                    f.write(chunk)
-                            
-                            try:
-                                await client.send_file(target_chat, video_filename, caption=caption)
-                                os.remove(video_filename)
-                            except Exception as e:
-                                await client.send_message(event_chat_id, f"❌ Gagal kirim video ke {target_chat}: {str(e)}")
-                                os.remove(video_filename)
-                                return
-                        else:
-                            try:
-                                await client.send_message(target_chat, f"{caption}\n\n🔗 [Download]({best_url})")
-                            except Exception as e:
-                                await client.send_message(event_chat_id, f"❌ Gagal kirim pesan ke {target_chat}: {str(e)}")
-                                return
-                    except Exception as e:
-                        try:
-                            await client.send_message(target_chat, f"{caption}\n\n🔗 [Download]({best_url})\n\n⚠️ Error: {str(e)}")
-                        except Exception as e2:
-                            await client.send_message(event_chat_id, f"❌ Gagal kirim pesan ke {target_chat}: {str(e2)}")
-                            return
-                else:
-                    try:
-                        await client.send_message(target_chat, "❌ Tidak ada video yang ditemukan")
-                    except Exception as e:
-                        await client.send_message(event_chat_id, f"❌ Gagal kirim pesan ke {target_chat}: {str(e)}")
-                        return
-            else:
-                try:
-                    await client.send_message(target_chat, "❌ Tidak ada media yang ditemukan")
-                except Exception as e:
-                    await client.send_message(event_chat_id, f"❌ Gagal kirim pesan ke {target_chat}: {str(e)}")
+                    await client.send_message(event.chat_id, f"❌ Gagal kirim pesan ke {target_chat}: {str(e)}")
                     return
         
     except Exception as e:
-        await client.send_message(event_chat_id, f"❌ Error umum mengirim hasil: {str(e)}")
+        await client.send_message(event.chat_id, f"❌ Error umum mengirim hasil: {str(e)}")
 
 # ========== BAGIAN 3 ==========
 # WEB SERVER, RESTART LOOP, MAIN + HANDLER
