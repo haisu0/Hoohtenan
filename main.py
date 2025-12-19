@@ -246,6 +246,7 @@ async def whois_handler(event, client):
         await event.reply(f"{text}\n\n⚠ Error ambil foto profil: {e}")
 
 
+
 # === FITUR: DOWNLOADER ===
 
 def is_valid_url(url):
@@ -466,75 +467,65 @@ async def handle_downloader(event, client):
         return
     
     input_text = event.pattern_match.group(2).strip() if event.pattern_match.group(2) else ''
-    reply = await event.get_reply_message() if event.is_reply else None
-
-    target_chat = event.chat_id
-    links_text = input_text
-
-    # Parse target_chat jika input dimulai dengan chat ID (angka atau username)
-    if input_text and (re.match(r'^@?[a-zA-Z0-9_]+$', input_text) or re.match(r'^-?\d+$', input_text)):
-        target_chat_raw = input_text
-        target_chat = int(target_chat_raw) if target_chat_raw.lstrip("-").isdigit() else target_chat_raw
-        # Ambil link dari reply jika ada
-        if reply and reply.message:
-            links_text = reply.message.strip()
-        else:
-            await event.reply("❌ Harus reply pesan berisi link kalau cuma kasih target chat.")
-            return
-
-    # Jika input kosong tapi ada reply, ambil dari reply
-    if not links_text and reply and reply.message:
-        links_text = reply.message.strip()
-
-    # Ekstrak semua URL dari teks
-    url_pattern = re.compile(r'https?://[^\s]+')
-    urls = url_pattern.findall(links_text)
-    valid_urls = [sanitize_url(url) for url in urls if is_valid_url(url)]
-    if not valid_urls:
-        await event.reply("❌ Tidak ada link valid.")
-        return
-
-    loading = await event.reply(f"⏳ Memproses {len(valid_urls)} link...")
-
-    for url in valid_urls:
-        platform = detect_platform(url)
-        if not platform:
-            await event.reply(f"❌ Platform tidak didukung untuk link: {url}")
-            continue
-
-        try:
-            if platform == 'tiktok':
-                result = await download_tiktok(url)
-            elif platform == 'instagram':
-                result = await download_instagram(url)
+    
+    if not input_text:
+        if event.is_reply:
+            reply = await event.get_reply_message()
+            if reply and reply.message:
+                input_text = reply.message.strip()
             else:
-                continue
-
-            if not result.get('success'):
-                await event.reply(f"❌ {result.get('message', 'Gagal mengunduh')} untuk {url}")
-                continue
-
-            # Kirim hasil ke target_chat
-            await send_download_result(client, target_chat, result, platform)
-
-        except Exception as e:
-            await event.reply(f"❌ Error memproses {url}: {str(e)}")
-
+                await event.reply("❌ Pesan balasan tidak berisi link.")
+                return
+        else:
+            await event.reply(
+                "❌ **Cara pakai:**\n"
+                "`/d <link>` atau `/download <link>`\n"
+                "atau reply pesan yang berisi link\n\n"
+                "**Platform support:**\n"
+                "• TikTok (video, images, audio)\n"
+                "• Instagram (video, images, mixed)"
+            )
+            return
+    
+    if not is_valid_url(input_text):
+        await event.reply("❌ Input bukan link yang valid!")
+        return
+    
+    clean_url = sanitize_url(input_text)
+    platform = detect_platform(clean_url)
+    
+    if not platform:
+        await event.reply("❌ Platform tidak didukung. Gunakan link dari TikTok atau Instagram.")
+        return
+    
+    loading = await event.reply(f"⏳ Mengunduh dari **{platform.title()}**...")
+    
     try:
-        await loading.delete()
-    except:
-        pass
-
-async def send_download_result(client, target_chat, result, platform):
-    """Fungsi untuk mengirim hasil download ke target_chat"""
-    try:
+        if platform == 'tiktok':
+            result = await download_tiktok(clean_url)
+        elif platform == 'instagram':
+            result = await download_instagram(clean_url)
+        else:
+            await loading.edit("❌ Platform belum didukung")
+            return
+        
+        try:
+            await loading.delete()
+        except:
+            pass
+        
+        if not result.get('success'):
+            await event.reply(f"❌ {result.get('message', 'Gagal mengunduh')}")
+            return
+        
+        # ===== TIKTOK HANDLER =====
         if platform == 'tiktok':
             if result['type'] == 'video':
                 # Get best quality video
                 video_url = get_best_video_url(result['video'], 'tiktok')
                 
                 if not video_url:
-                    await client.send_message(target_chat, f"❌ Tidak ada URL video yang valid untuk TikTok")
+                    await event.reply("❌ Tidak ada URL video yang valid")
                     return
                 
                 caption = (
@@ -556,12 +547,12 @@ async def send_download_result(client, target_chat, result, platform):
                             for chunk in video_res.iter_content(chunk_size=8192):
                                 f.write(chunk)
                         
-                        await client.send_file(target_chat, video_filename, caption=caption)
+                        await client.send_file(event.chat_id, video_filename, caption=caption)
                         os.remove(video_filename)
                     else:
-                        await client.send_message(target_chat, f"{caption}\n\n🔗 [Download Video]({video_url})")
+                        await event.reply(f"{caption}\n\n🔗 [Download Video]({video_url})")
                 except Exception as e:
-                    await client.send_message(target_chat, f"{caption}\n\n🔗 [Download Video]({video_url})\n\n⚠️ Error: {str(e)}")
+                    await event.reply(f"{caption}\n\n🔗 [Download Video]({video_url})\n\n⚠️ Error: {str(e)}")
                 
                 # Download and send audio/music if available
                 music_url = result.get('music_info', {}).get('url')
@@ -581,7 +572,7 @@ async def send_download_result(client, target_chat, result, platform):
                                     f.write(chunk)
                             
                             await client.send_file(
-                                target_chat, 
+                                event.chat_id, 
                                 audio_filename, 
                                 caption=music_caption,
                                 voice_note=False,
@@ -626,7 +617,7 @@ async def send_download_result(client, target_chat, result, platform):
                         # Caption hanya di chunk terakhir
                         chunk_caption = caption if is_last_chunk else None
                         
-                        await client.send_file(target_chat, chunk, caption=chunk_caption)
+                        await client.send_file(event.chat_id, chunk, caption=chunk_caption)
                     
                     # Hapus semua file
                     for f in all_files:
@@ -635,7 +626,7 @@ async def send_download_result(client, target_chat, result, platform):
                         except:
                             pass
                 else:
-                    await client.send_message(target_chat, f"{caption}\n\n⚠️ Gagal mengunduh gambar")
+                    await event.reply(f"{caption}\n\n⚠️ Gagal mengunduh gambar")
                 
                 # Send audio for slideshow too
                 music_url = result.get('music_info', {}).get('url')
@@ -655,7 +646,7 @@ async def send_download_result(client, target_chat, result, platform):
                                     f.write(chunk)
                             
                             await client.send_file(
-                                target_chat, 
+                                event.chat_id, 
                                 audio_filename, 
                                 caption=music_caption,
                                 voice_note=False,
@@ -669,6 +660,7 @@ async def send_download_result(client, target_chat, result, platform):
                     except Exception as e:
                         pass  # Silent fail for audio
         
+        # ===== INSTAGRAM HANDLER =====
         elif platform == 'instagram':
             if result['type'] == 'video':
                 video_items = result['videos']
@@ -687,12 +679,12 @@ async def send_download_result(client, target_chat, result, platform):
                                 for chunk in video_res.iter_content(chunk_size=8192):
                                     f.write(chunk)
                             
-                            await client.send_file(target_chat, video_filename, caption=caption)
+                            await client.send_file(event.chat_id, video_filename, caption=caption)
                             os.remove(video_filename)
                         else:
-                            await client.send_message(target_chat, f"{caption}\n\n🔗 [Download]({video_url})")
+                            await event.reply(f"{caption}\n\n🔗 [Download]({video_url})")
                     except Exception as e:
-                        await client.send_message(target_chat, f"{caption}\n\n🔗 [Download]({video_url})")
+                        await event.reply(f"{caption}\n\n🔗 [Download]({video_url})")
                 else:
                     # Multiple videos - download semua
                     all_files = []
@@ -718,7 +710,7 @@ async def send_download_result(client, target_chat, result, platform):
                             # Caption hanya di chunk terakhir
                             chunk_caption = f"📹 **Instagram Videos** ({len(all_files)} videos)" if is_last_chunk else None
                             
-                            await client.send_file(target_chat, chunk, caption=chunk_caption)
+                            await client.send_file(event.chat_id, chunk, caption=chunk_caption)
                         
                         # Hapus semua file
                         for f in all_files:
@@ -729,7 +721,7 @@ async def send_download_result(client, target_chat, result, platform):
                     else:
                         # Fallback to links
                         for idx, video_item in enumerate(video_items[:5], 1):
-                            await client.send_message(target_chat, f"📹 **Instagram Video {idx}**\n\n🔗 [Download]({video_item['url']})")
+                            await event.reply(f"📹 **Instagram Video {idx}**\n\n🔗 [Download]({video_item['url']})")
                             
             elif result['type'] == 'images':
                 image_items = result['images']
@@ -747,12 +739,12 @@ async def send_download_result(client, target_chat, result, platform):
                             with open(filename, 'wb') as f:
                                 f.write(img_res.content)
                             
-                            await client.send_file(target_chat, filename, caption=caption)
+                            await client.send_file(event.chat_id, filename, caption=caption)
                             os.remove(filename)
                         else:
-                            await client.send_message(target_chat, f"{caption}\n\n🔗 [Download]({img_url})")
+                            await event.reply(f"{caption}\n\n🔗 [Download]({img_url})")
                     except:
-                        await client.send_message(target_chat, f"{caption}\n\n🔗 [Download]({img_url})")
+                        await event.reply(f"{caption}\n\n🔗 [Download]({img_url})")
                 else:
                     # Multiple images - download semua
                     all_files = []
@@ -777,7 +769,7 @@ async def send_download_result(client, target_chat, result, platform):
                             # Caption hanya di chunk terakhir
                             chunk_caption = f"🖼 **Instagram Images** ({len(all_files)} photos)" if is_last_chunk else None
                             
-                            await client.send_file(target_chat, chunk, caption=chunk_caption)
+                            await client.send_file(event.chat_id, chunk, caption=chunk_caption)
                         
                         # Hapus semua file
                         for f in all_files:
@@ -788,7 +780,7 @@ async def send_download_result(client, target_chat, result, platform):
                     else:
                         # Fallback to links
                         for idx, img_item in enumerate(image_items[:10], 1):
-                            await client.send_message(target_chat, f"🖼 **Instagram Image {idx}**\n\n🔗 [Download]({img_item['url']})")
+                            await event.reply(f"🖼 **Instagram Image {idx}**\n\n🔗 [Download]({img_item['url']})")
                             
             elif result['type'] == 'mixed':
                 all_media = result['data']
@@ -831,7 +823,7 @@ async def send_download_result(client, target_chat, result, platform):
                         # Caption hanya di chunk terakhir
                         chunk_caption = caption if is_last_chunk else None
                         
-                        await client.send_file(target_chat, chunk, caption=chunk_caption)
+                        await client.send_file(event.chat_id, chunk, caption=chunk_caption)
                     
                     # Hapus semua file
                     for f in all_files:
@@ -844,13 +836,16 @@ async def send_download_result(client, target_chat, result, platform):
                     for idx, media_item in enumerate(all_media[:5], 1):
                         media_type_emoji = "📹" if media_item['type'] == 'video' else "🖼"
                         media_type_text = "Video" if media_item['type'] == 'video' else "Image"
-                        await client.send_message(target_chat, f"{media_type_emoji} **Instagram {media_type_text} {idx}**\n\n🔗 [Download]({media_item['url']})")
+                        await event.reply(f"{media_type_emoji} **Instagram {media_type_text} {idx}**\n\n🔗 [Download]({media_item['url']})")
             else:
-                await client.send_message(target_chat, "❌ Tidak ada media yang ditemukan")
+                await event.reply("❌ Tidak ada media yang ditemukan")
         
     except Exception as e:
-        await client.send_message(target_chat, f"❌ Error mengirim hasil: {str(e)}")
-
+        try:
+            await loading.delete()
+        except:
+            pass
+        await event.reply(f"❌ Terjadi error: {str(e)}")
 
 # ========== BAGIAN 3 ==========
 # WEB SERVER, RESTART LOOP, MAIN + HANDLER
