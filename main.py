@@ -163,6 +163,66 @@ async def heartbeat(client, log_admin, log_channel, akun_nama):
         await asyncio.sleep(300)
 
 
+
+async def whois_handler(event, client):
+    if not event.is_private:
+        return
+
+    if not event.is_reply:
+        await event.reply("❌ Reply pesan user yang ingin kamu cek.")
+        return
+
+    reply = await event.get_reply_message()
+    user = await client.get_entity(reply.sender_id)
+
+    try:
+        full = await client(GetFullUserRequest(user.id))
+        bio = full.full_user.about or "-"
+    except Exception as e:
+        bio = f"⚠ Tidak bisa ambil bio: {e}"
+
+    phone = getattr(user, "phone", None)
+    phone = f"+{phone}" if phone and not phone.startswith("+") else (phone or "-")
+
+    text = (
+        f"👤 **WHOIS USER**\n\n"
+        f"🆔 ID: `{user.id}`\n"
+        f"👥 Nama: {user.first_name or '-'} {user.last_name or ''}\n"
+        f"🔗 Username: @{user.username if user.username else '-'}\n"
+        f"📖 Bio: {bio}\n"
+        f"⭐ Premium: {'Ya' if getattr(user, 'premium', False) else 'Tidak'}\n"
+        f"🤖 Bot: {'Ya' if user.bot else 'Tidak'}\n"
+        f"☎️ Nomor: {phone}\n"
+    )
+    
+    try:
+        # Ambil semua foto/video profil user
+        photos = await client.get_profile_photos(user.id, limit=10)  # batasi 10 biar aman
+        files = []
+        for p in photos:
+            fpath = await client.download_media(p)
+            files.append(fpath)
+
+        if files:
+            # Kirim sebagai media group (album)
+            await client.send_file(
+                event.chat_id,
+                files,
+                caption=text,
+                link_preview=False
+            )
+            # Hapus file lokal
+            for f in files:
+                try:
+                    os.remove(f)
+                except:
+                    pass
+        else:
+            await event.reply(text)
+    except Exception as e:
+        await event.reply(f"{text}\n\n⚠ Error ambil foto profil: {e}")
+
+
 # === FITUR: DOWNLOADER (multi-link + target chat) ===
 
 def sanitize_url(url):
