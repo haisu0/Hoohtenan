@@ -645,29 +645,38 @@ async def handle_downloader_multi(event, client):
     if event.sender_id != me.id:
         return
 
-    input_text = event.pattern_match.group(2).strip() if event.pattern_match.group(2) else ''
+    args = event.pattern_match.group(2).strip().split() if event.pattern_match.group(2) else []
     reply = await event.get_reply_message() if event.is_reply else None
 
     send_to = event.chat_id
-    links_text = input_text
+    links_text = ""
 
-    # Jika input hanya target chat (id/username), ambil link dari reply
-    if input_text and (re.match(r'^@?[a-zA-Z0-9_]+$', input_text) or re.match(r'^-?\d+$', input_text)):
-        target_chat_raw = input_text
-        send_to = int(target_chat_raw) if target_chat_raw.lstrip("-").isdigit() else target_chat_raw
+    if args:
+        first_arg = args[0]
+        # cek apakah argumen pertama adalah chatid/username
+        if re.match(r'^@?[a-zA-Z0-9_]+$', first_arg) or re.match(r'^-?\d+$', first_arg):
+            send_to = int(first_arg) if first_arg.lstrip("-").isdigit() else first_arg
+            # sisanya dianggap link
+            if len(args) > 1:
+                links_text = " ".join(args[1:])
+            elif reply and reply.message:
+                links_text = reply.message.strip()
+            else:
+                await event.reply("❌ Harus kasih link atau reply pesan berisi link.")
+                return
+        else:
+            # argumen pertama bukan chatid → treat semua sebagai link
+            links_text = " ".join(args)
+    else:
+        # tidak ada argumen → ambil dari reply
         if reply and reply.message:
             links_text = reply.message.strip()
         else:
-            await event.reply("❌ Harus reply pesan berisi link kalau cuma kasih target chat.")
+            await event.reply("❌ Tidak ada link TikTok/Instagram yang valid.")
             return
-
-    # Kalau input kosong tapi ada reply
-    if not links_text and reply and reply.message:
-        links_text = reply.message.strip()
 
     # Ambil semua URL
     urls = URL_REGEX.findall(links_text)
-    # Filter hanya TikTok/Instagram agar predictable
     urls = [u for u in urls if detect_platform(u)]
 
     if not urls:
@@ -683,6 +692,7 @@ async def handle_downloader_multi(event, client):
         await loading.delete()
     except:
         pass
+
 
 
 # ========== BAGIAN 3 ==========
