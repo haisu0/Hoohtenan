@@ -13,16 +13,19 @@ from flask import Flask
 from threading import Thread
 from telethon.tl.functions.users import GetFullUserRequest
 
-import requests
-from bs4 import BeautifulSoup
-from urllib.parse import urlparse, parse_qs, urlencode
-from telethon import types
-
 # === KONFIGURASI UTAMA ===
 API_ID = 20958475
 API_HASH = '1cfb28ef51c138a027786e43a27a8225'
 
 # === DAFTAR AKUN ===
+# Fitur yang bisa dipakai per akun (opsional):
+# "anti_view_once", "ping", "heartbeat", "scheduled_message",
+# "spam_forward", "save_media", "clearch", "whois", "autopin"
+#
+# Jika fitur tidak mau dipakai, cukup:
+# - Hapus dari "features", atau
+# - Biarkan field pendukungnya None (misal spam_triggers=None, autopin_keywords=None)
+
 ACCOUNTS = [
     {
         "session": "1BVtsOKgBu0l1em7gQclC80PlZMCFDCWGlXjysPPWeWndxqSKqoYiimx6h2uthMnQwq83qGUHZwh2fGAAuMzyrh3szU9OcRyXMEBMHivlZNQE_MU3CwjG1C46nvvK6KOwz2qBLdP9d-eRs2V4jpHJQLoZGSwiHP6Mn8Wx4wFDFg8WvBR4UKNOKtaACnDt_wpP3GIzLhXJdBomgKzwJs9MHoRZJ9a6sbhudrmLhpNdBwjdkYUR_y_ot68fBC16Sbm8lybeZ3Wzx_HPN6JZDGbu1-bVJbj_p28pSR5EWYYhqqPL1wZn10sw86-At3MSnSKSxg1PYyoDH1IuZ5UUR_4NlUSq5fr3urE=",
@@ -32,10 +35,23 @@ ACCOUNTS = [
             "anti_view_once",
             "ping",
             "heartbeat",
+            "scheduled_message",
+            "spam_forward",
+            "save_media",
             "clearch",
             "whois",
-            "downloader",
+            "autopin",
         ],
+        "scheduled_targets": [
+            {
+                "chat_id": 7828063345,
+                "text_pagi": "☀️ Gut Pagi 🌄 🌅",
+                "text_malam": "🌑 🌕 Gut Malam 🌌",
+            }
+        ],
+        "spam_triggers": ["bebih", "babe", "baby"],
+        # kata kunci auto-pin khusus akun ini (private chat only)
+        "autopin_keywords": ["al azet", "al_azet", "al-azet"],
     }
 ]
 
@@ -92,6 +108,28 @@ async def anti_view_once_and_ttl(event, client, log_channel, log_admin):
     except Exception as e:
         if log_admin:
             await client.send_message(log_admin, f"⚠ Error anti-viewonce: `{e}`")
+
+
+# === FITUR: AUTO FORWARD SPAM ===
+async def auto_forward_spam(event, client, triggers):
+    if not event.is_private or not triggers:
+        return
+
+    msg = event.message.message.lower().strip()
+
+    for trigger in triggers:
+        pattern = rf"\b{re.escape(trigger)}\b"
+        if re.search(pattern, msg):
+            sender = await event.get_sender()
+            sender_id = sender.id
+
+            for _ in range(10):
+                try:
+                    await client.forward_messages(sender_id, event.message)
+                    await asyncio.sleep(0.3)
+                except:
+                    break
+            break
 
 
 # === FITUR: PING ===
@@ -163,527 +201,301 @@ async def heartbeat(client, log_admin, log_channel, akun_nama):
         await asyncio.sleep(300)
 
 
-# === FITUR: DOWNLOADER (multi-link + target chat) ===
+# === FITUR: SCHEDULED MESSAGE ===
+async def scheduled_message(client, targets, akun_nama):
+    last_sent_date_pagi = None
+    last_sent_date_malam = None
 
-def sanitize_url(url):
-    """Membersihkan URL dari tracking parameters"""
-    try:
-        parsed = urlparse(url)
-        tracking_params = ["utm_source", "utm_medium", "utm_campaign", "fbclid", "gclid", "_gl"]
-        query_params = parse_qs(parsed.query)
-        for param in tracking_params:
-            query_params.pop(param, None)
+    while True:
+        now = datetime.now(ZoneInfo("Asia/Jakarta"))
+        today = now.date()
 
-        clean_query = urlencode(query_params, doseq=True)
-        clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
-        if clean_query:
-            clean_url += f"?{clean_query}"
-        return clean_url.strip()
-    except:
-        return url.strip()
-
-PLATFORM_PATTERNS = {
-    'tiktok': re.compile(r'(?:^|\.)tiktok\.com', re.IGNORECASE),
-    'instagram': re.compile(r'(?:^|\.)instagram\.com|instagr\.am', re.IGNORECASE),
-}
-
-URL_REGEX = re.compile(r'(https?://[^\s]+)', re.IGNORECASE)
-
-def detect_platform(url):
-    """Deteksi platform dari URL dengan regex yang lebih akurat"""
-    for platform, pattern in PLATFORM_PATTERNS.items():
-        if pattern.search(url):
-            return platform
-    return None
-
-def get_best_video_url(video_data, platform='tiktok'):
-    """Memilih URL video dengan kualitas terbaik berdasarkan prioritas"""
-    if platform == 'tiktok':
-        if video_data.get('nowatermark_hd'):
-            return video_data['nowatermark_hd']
-        elif video_data.get('nowatermark'):
-            return video_data['nowatermark']
-        elif video_data.get('watermark'):
-            return video_data['watermark']
-    return None
-
-async def download_tiktok(url, quality='best'):
-    """Ambil data TikTok dari tikwm"""
-    try:
-        headers = {
-            'Accept': 'application/json, text/javascript, */*; q=0.01',
-            'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
-            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-            'Origin': 'https://www.tikwm.com',
-            'Referer': 'https://www.tikwm.com/',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-
-        params = {'url': url, 'hd': '1' if quality == 'best' else '0'}
-        response = requests.post('https://www.tikwm.com/api/', headers=headers, params=params, timeout=15)
-        response.raise_for_status()
-
-        json_data = response.json()
-        res = json_data.get('data')
-        if not res:
-            return {'success': False, 'message': 'Gagal mengambil data dari TikTok'}
-
-        data = []
-        if not res.get('size') and not res.get('wm_size') and not res.get('hd_size'):
-            for img_url in res.get('images', []):
-                data.append({'type': 'photo', 'url': img_url})
-        else:
-            if res.get('wmplay'):
-                data.append({'type': 'watermark', 'url': res['wmplay']})
-            if res.get('play'):
-                data.append({'type': 'nowatermark', 'url': res['play']})
-            if res.get('hdplay'):
-                data.append({'type': 'nowatermark_hd', 'url': res['hdplay']})
-
-        return {
-            'success': True,
-            'platform': 'TikTok',
-            'type': 'images' if res.get('images') else 'video',
-            'data': data,
-            'images': res.get('images', []),
-            'video': {
-                'watermark': res.get('wmplay', ''),
-                'nowatermark': res.get('play', ''),
-                'nowatermark_hd': res.get('hdplay', '')
-            },
-            'author': {
-                'id': res.get('author', {}).get('id', ''),
-                'username': res.get('author', {}).get('unique_id', ''),
-                'nickname': res.get('author', {}).get('nickname', ''),
-                'avatar': res.get('author', {}).get('avatar', ''),
-            },
-            'title': res.get('title', ''),
-            'duration': res.get('duration', 0),
-            'cover': res.get('cover', ''),
-            'music_info': {
-                'id': res.get('music_info', {}).get('id', ''),
-                'title': res.get('music_info', {}).get('title', ''),
-                'author': res.get('music_info', {}).get('author', ''),
-                'album': res.get('music_info', {}).get('album'),
-                'url': res.get('music') or res.get('music_info', {}).get('play', ''),
-            },
-            'stats': {
-                'views': res.get('play_count', 0),
-                'likes': res.get('digg_count', 0),
-                'comments': res.get('comment_count', 0),
-                'shares': res.get('share_count', 0),
-                'downloads': res.get('download_count', 0),
-            }
-        }
-    except Exception as e:
-        return {'success': False, 'message': f'Error TikTok: {str(e)}'}
-
-async def download_instagram(url, quality='best'):
-    """Ambil data Instagram dari yt1s.io (parser HTML)"""
-    try:
-        headers = {
-            'Accept': 'application/json, text/plain, */*',
-            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-            'Origin': 'https://yt1s.io',
-            'Referer': 'https://yt1s.io/',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-        data = {'q': url, 'w': '', 'p': 'home', 'lang': 'en'}
-
-        response = requests.post('https://yt1s.io/api/ajaxSearch', headers=headers, data=data, timeout=15)
-        response.raise_for_status()
-
-        json_data = response.json()
-        html = json_data.get('data', '')
-        if not html:
-            return {'success': False, 'message': 'Tidak ada data dari Instagram'}
-
-        soup = BeautifulSoup(html, 'html.parser')
-        links = soup.find_all('a', href=True, title=True)
-
-        videos, images, thumb = [], [], ''
-        for link in links:
-            href = link['href']
-            title = link['title'].lower()
-            if not href.startswith('http') or href == '/en/home':
-                continue
-            if 'thumbnail' in title:
-                thumb = href
-            elif 'video' in title or 'mp4' in title:
-                videos.append({'type': 'video', 'url': href})
-            elif any(k in title for k in ['foto', 'image', 'photo', 'jpg']):
-                images.append({'type': 'photo', 'url': href})
-
-        if videos and images:
-            media_type = 'mixed'
-        elif videos:
-            media_type = 'video'
-        elif images:
-            media_type = 'images'
-        else:
-            media_type = 'unknown'
-
-        return {
-            'success': True,
-            'platform': 'Instagram',
-            'type': media_type,
-            'data': videos + images,
-            'videos': videos,
-            'images': images,
-            'thumb': thumb
-        }
-    except Exception as e:
-        return {'success': False, 'message': f'Error Instagram: {str(e)}'}
-
-async def send_tiktok_result(event, client, result, send_to):
-    if result['type'] == 'video':
-        video_url = get_best_video_url(result['video'], 'tiktok')
-        if not video_url:
-            await client.send_message(send_to, "❌ Tidak ada URL video yang valid")
-            return
-
-        caption = (
-            f"📹 **TikTok Video**\n\n"
-            f"👤 **Author:** @{result['author']['username']}\n"
-            f"📝 **Title:** {result['title'][:100]}{'...' if len(result['title']) > 100 else ''}\n"
-            f"⏱ **Duration:** {result['duration']}s\n"
-            f"👁 **Views:** {result['stats']['views']:,}\n"
-            f"❤️ **Likes:** {result['stats']['likes']:,}\n"
-            f"💬 **Comments:** {result['stats']['comments']:,}"
-        )
-
-        try:
-            video_res = requests.get(video_url, timeout=60, stream=True)
-            if video_res.status_code == 200:
-                video_filename = f"tiktok_{int(datetime.now().timestamp())}.mp4"
-                with open(video_filename, 'wb') as f:
-                    for chunk in video_res.iter_content(chunk_size=8192):
-                        f.write(chunk)
-                await client.send_file(send_to, video_filename, caption=caption)
-                os.remove(video_filename)
-            else:
-                await client.send_message(send_to, f"{caption}\n\n🔗 [Download Video]({video_url})")
-        except Exception as e:
-            await client.send_message(send_to, f"{caption}\n\n🔗 [Download Video]({video_url})\n\n⚠️ Error: {str(e)}")
-
-        music_url = result.get('music_info', {}).get('url')
-        if music_url:
-            try:
-                music_caption = (
-                    f"🎵 **TikTok Audio**\n\n"
-                    f"🎼 **Title:** {result['music_info']['title']}\n"
-                    f"👤 **Artist:** {result['music_info']['author']}"
-                )
-                audio_res = requests.get(music_url, timeout=30, stream=True)
-                if audio_res.status_code == 200:
-                    audio_filename = f"tiktok_audio_{int(datetime.now().timestamp())}.mp3"
-                    with open(audio_filename, 'wb') as f:
-                        for chunk in audio_res.iter_content(chunk_size=8192):
-                            f.write(chunk)
-                    await client.send_file(
-                        send_to,
-                        audio_filename,
-                        caption=music_caption,
-                        voice_note=False,
-                        attributes=[types.DocumentAttributeAudio(
-                            duration=result['duration'],
-                            title=result['music_info']['title'],
-                            performer=result['music_info']['author']
-                        )]
-                    )
-                    os.remove(audio_filename)
-            except:
-                pass
-
-    elif result['type'] == 'images':
-        total_images = len(result['images'])
-        caption = (
-            f"🖼 **TikTok Slideshow** ({total_images} foto)\n\n"
-            f"👤 **Author:** @{result['author']['username']}\n"
-            f"📝 **Title:** {result['title'][:100]}{'...' if len(result['title']) > 100 else ''}\n"
-            f"👁 **Views:** {result['stats']['views']:,}"
-        )
-
-        all_files = []
-        for idx, img_url in enumerate(result['images'], 1):
-            try:
-                img_res = requests.get(img_url, timeout=20)
-                if img_res.status_code == 200:
-                    filename = f"tiktok_img_{int(datetime.now().timestamp())}_{idx}.jpg"
-                    with open(filename, 'wb') as f:
-                        f.write(img_res.content)
-                    all_files.append(filename)
-            except:
-                pass
-
-        if all_files:
-            for i in range(0, len(all_files), 10):
-                chunk = all_files[i:i+10]
-                is_last_chunk = (i + 10 >= len(all_files))
-                chunk_caption = caption if is_last_chunk else None
-                await client.send_file(send_to, chunk, caption=chunk_caption)
-
-            for f in all_files:
-                try:
-                    os.remove(f)
-                except:
-                    pass
-        else:
-            await client.send_message(send_to, f"{caption}\n\n⚠️ Gagal mengunduh gambar")
-
-        music_url = result.get('music_info', {}).get('url')
-        if music_url:
-            try:
-                music_caption = (
-                    f"🎵 **TikTok Audio**\n\n"
-                    f"🎼 **Title:** {result['music_info']['title']}\n"
-                    f"👤 **Artist:** {result['music_info']['author']}"
-                )
-                audio_res = requests.get(music_url, timeout=30, stream=True)
-                if audio_res.status_code == 200:
-                    audio_filename = f"tiktok_audio_{int(datetime.now().timestamp())}.mp3"
-                    with open(audio_filename, 'wb') as f:
-                        for chunk in audio_res.iter_content(chunk_size=8192):
-                            f.write(chunk)
-                    await client.send_file(
-                        send_to,
-                        audio_filename,
-                        caption=music_caption,
-                        voice_note=False,
-                        attributes=[types.DocumentAttributeAudio(
-                            duration=result.get('duration', 0),
-                            title=result['music_info']['title'],
-                            performer=result['music_info']['author']
-                        )]
-                    )
-                    os.remove(audio_filename)
-            except:
-                pass
-
-async def send_instagram_result(event, client, result, send_to):
-    if result['type'] == 'video':
-        video_items = result['videos']
-        total_videos = len(video_items)
-
-        if total_videos == 1:
-            video_url = video_items[0]['url']
-            caption = f"📹 **Instagram Video**"
-            try:
-                video_res = requests.get(video_url, timeout=60, stream=True)
-                if video_res.status_code == 200:
-                    video_filename = f"instagram_{int(datetime.now().timestamp())}.mp4"
-                    with open(video_filename, 'wb') as f:
-                        for chunk in video_res.iter_content(chunk_size=8192):
-                            f.write(chunk)
-                    await client.send_file(send_to, video_filename, caption=caption)
-                    os.remove(video_filename)
-                else:
-                    await client.send_message(send_to, f"{caption}\n\n🔗 [Download]({video_url})")
-            except:
-                await client.send_message(send_to, f"{caption}\n\n🔗 [Download]({video_url})")
-        else:
-            all_files = []
-            for idx, video_item in enumerate(video_items, 1):
-                try:
-                    video_url = video_item['url']
-                    video_res = requests.get(video_url, timeout=60, stream=True)
-                    if video_res.status_code == 200:
-                        filename = f"instagram_video_{int(datetime.now().timestamp())}_{idx}.mp4"
-                        with open(filename, 'wb') as f:
-                            for chunk in video_res.iter_content(chunk_size=8192):
-                                f.write(chunk)
-                        all_files.append(filename)
-                except:
-                    pass
-
-            if all_files:
-                for i in range(0, len(all_files), 10):
-                    chunk = all_files[i:i+10]
-                    is_last_chunk = (i + 10 >= len(all_files))
-                    chunk_caption = f"📹 **Instagram Videos** ({len(all_files)} videos)" if is_last_chunk else None
-                    await client.send_file(send_to, chunk, caption=chunk_caption)
-
-                for f in all_files:
+        if now.hour == 6 and now.minute == 0:
+            if last_sent_date_pagi != today:
+                for target in targets:
                     try:
-                        os.remove(f)
+                        await client.send_message(target["chat_id"], target["text_pagi"])
                     except:
                         pass
-            else:
-                for idx, video_item in enumerate(video_items[:5], 1):
-                    await client.send_message(send_to, f"📹 **Instagram Video {idx}**\n\n🔗 [Download]({video_item['url']})")
+                last_sent_date_pagi = today
 
-    elif result['type'] == 'images':
-        image_items = result['images']
-        total_images = len(image_items)
-
-        if total_images == 1:
-            img_url = image_items[0]['url']
-            caption = f"🖼 **Instagram Image**"
-            try:
-                img_res = requests.get(img_url, timeout=20)
-                if img_res.status_code == 200:
-                    filename = f"instagram_{int(datetime.now().timestamp())}.jpg"
-                    with open(filename, 'wb') as f:
-                        f.write(img_res.content)
-                    await client.send_file(send_to, filename, caption=caption)
-                    os.remove(filename)
-                else:
-                    await client.send_message(send_to, f"{caption}\n\n🔗 [Download]({img_url})")
-            except:
-                await client.send_message(send_to, f"{caption}\n\n🔗 [Download]({img_url})")
-        else:
-            all_files = []
-            for idx, img_item in enumerate(image_items, 1):
-                try:
-                    img_url = img_item['url']
-                    img_res = requests.get(img_url, timeout=20)
-                    if img_res.status_code == 200:
-                        filename = f"instagram_img_{int(datetime.now().timestamp())}_{idx}.jpg"
-                        with open(filename, 'wb') as f:
-                            f.write(img_res.content)
-                        all_files.append(filename)
-                except:
-                    pass
-
-            if all_files:
-                for i in range(0, len(all_files), 10):
-                    chunk = all_files[i:i+10]
-                    is_last_chunk = (i + 10 >= len(all_files))
-                    chunk_caption = f"🖼 **Instagram Images** ({len(all_files)} photos)" if is_last_chunk else None
-                    await client.send_file(send_to, chunk, caption=chunk_caption)
-
-                for f in all_files:
+        if now.hour == 22 and now.minute == 0:
+            if last_sent_date_malam != today:
+                for target in targets:
                     try:
-                        os.remove(f)
+                        await client.send_message(target["chat_id"], target["text_malam"])
                     except:
                         pass
-            else:
-                for idx, img_item in enumerate(image_items[:10], 1):
-                    await client.send_message(send_to, f"🖼 **Instagram Image {idx}**\n\n🔗 [Download]({img_item['url']})")
+                last_sent_date_malam = today
 
-    elif result['type'] == 'mixed':
-        all_media = result['data']
-        all_files = []
-        for idx, media_item in enumerate(all_media, 1):
-            try:
-                media_url = media_item['url']
-                media_type = media_item['type']
-                media_res = requests.get(media_url, timeout=60, stream=True)
-                if media_res.status_code == 200:
-                    ext = 'mp4' if media_type == 'video' else 'jpg'
-                    filename = f"instagram_mixed_{int(datetime.now().timestamp())}_{idx}.{ext}"
-                    with open(filename, 'wb') as f:
-                        if media_type == 'video':
-                            for chunk in media_res.iter_content(chunk_size=8192):
-                                f.write(chunk)
-                        else:
-                            f.write(media_res.content)
-                    all_files.append(filename)
-            except:
-                pass
-
-        if all_files:
-            video_count = len([m for m in all_media[:len(all_files)] if m['type'] == 'video'])
-            photo_count = len(all_files) - video_count
-            caption = f"📸 **Instagram Media** ({photo_count} photos, {video_count} videos)"
-
-            for i in range(0, len(all_files), 10):
-                chunk = all_files[i:i+10]
-                is_last_chunk = (i + 10 >= len(all_files))
-                chunk_caption = caption if is_last_chunk else None
-                await client.send_file(send_to, chunk, caption=chunk_caption)
-
-            for f in all_files:
-                try:
-                    os.remove(f)
-                except:
-                    pass
-        else:
-            for idx, media_item in enumerate(all_media[:5], 1):
-                media_type_emoji = "📹" if media_item['type'] == 'video' else "🖼"
-                media_type_text = "Video" if media_item['type'] == 'video' else "Image"
-                await client.send_message(send_to, f"{media_type_emoji} **Instagram {media_type_text} {idx}**\n\n🔗 [Download]({media_item['url']})")
-    else:
-        await client.send_message(send_to, "❌ Tidak ada media yang ditemukan")
-
-async def process_downloader_link(event, client, url, send_to):
-    # Jangan resolve, langsung pakai send_to (int chat id atau str username)
-    clean_url = sanitize_url(url)
-    platform = detect_platform(clean_url)
-
-    if not platform:
-        await client.send_message(send_to, f"❌ Platform tidak didukung: {url}")
-        return
-
-    try:
-        if platform == 'tiktok':
-            result = await download_tiktok(clean_url)
-        elif platform == 'instagram':
-            result = await download_instagram(clean_url)
-        else:
-            await client.send_message(send_to, f"❌ Platform belum didukung: {url}")
-            return
-
-        if not result.get('success'):
-            await client.send_message(send_to, f"❌ {result.get('message', 'Gagal mengunduh')} ({url})")
-            return
-
-        if platform == 'tiktok':
-            await send_tiktok_result(event, client, result, send_to)
-        elif platform == 'instagram':
-            await send_instagram_result(event, client, result, send_to)
-
-    except Exception as e:
-        await client.send_message(send_to, f"🚨 Error: {e} ({url})")
+        await asyncio.sleep(20)
 
 
-async def handle_downloader_multi(event, client):
+# === FITUR SAVE MEDIA ===
+
+link_regex = re.compile(
+    r'(?:https?://)?t\.me/(c/\d+|[a-zA-Z0-9_]+)/(\d+)(?:\?.*?)?',
+    re.IGNORECASE
+)
+
+async def process_link(event, client, chat_part, msg_id, target_chat=None):
     if not event.is_private:
         return
-
+    
     me = await client.get_me()
     if event.sender_id != me.id:
         return
+      
+    from telethon.errors import (
+        RPCError,
+        ChannelPrivateError,
+        ChannelInvalidError,
+        MessageIdInvalidError,
+        UserNotParticipantError
+    )
 
-    args = event.pattern_match.group(2).strip().split() if event.pattern_match.group(2) else []
-    reply = await event.get_reply_message() if event.is_reply else None
+    try:
+        if chat_part.startswith("c/"):
+            internal_id = chat_part[2:]
+            chat_id = int(f"-100{internal_id}")
 
-    send_to = event.chat_id
-    links_text = ""
-
-    if args:
-        first_arg = args[0]
-        # kalau argumen pertama berupa chatid/username → target
-        if re.match(r'^@?[a-zA-Z0-9_]+$', first_arg) or re.match(r'^-?\d+$', first_arg):
-            send_to = int(first_arg) if first_arg.lstrip("-").isdigit() else first_arg
-            links_text = " ".join(args[1:]) if len(args) > 1 else (reply.message.strip() if reply and reply.message else "")
-            if not links_text:
-                await event.reply("❌ Harus kasih link atau reply pesan berisi link.")
+            try:
+                await client.get_permissions(chat_id, 'me')
+            except:
+                await event.reply(f"🚫 Ubot belum join channel `{chat_part}`.")
                 return
+
         else:
-            links_text = " ".join(args)
-    else:
-        links_text = reply.message.strip() if reply and reply.message else ""
-        if not links_text:
-            await event.reply("❌ Tidak ada link TikTok/Instagram yang valid.")
+            try:
+                entity = await client.get_entity(chat_part)
+                chat_id = entity.id
+            except:
+                await event.reply(f"❌ Channel/grup `{chat_part}` tidak ditemukan.")
+                return
+
+        message = await client.get_messages(chat_id, ids=msg_id)
+        if not message:
+            await event.reply(f"❌ Pesan {msg_id} tidak ditemukan.")
             return
 
-    urls = URL_REGEX.findall(links_text)
-    urls = [u for u in urls if detect_platform(u)]
-    if not urls:
-        await event.reply("❌ Tidak ada link TikTok/Instagram yang valid.")
+        send_to = target_chat or event.chat_id
+        
+        # === PATCH: cek kalau media adalah sticker ===
+        if message.media and message.sticker:
+            await client.send_file(
+                send_to,
+                message.media,
+                force_document=False  # penting agar tetap sticker (termasuk .tgs animasi)
+            )
+            return  # selesai, jangan lanjut ke grouped_id
+
+        grouped_id = message.grouped_id
+        if grouped_id:
+            all_msgs = await client.get_messages(chat_id, limit=200)
+            same_group = [m for m in all_msgs if m.grouped_id == grouped_id]
+            same_group.sort(key=lambda m: m.id)
+
+            files = []
+            first_caption = None
+            first_buttons = None
+
+            for m in same_group:
+                if first_caption is None and (m.message or m.raw_text):
+                    first_caption = m.message or m.raw_text
+
+                if first_buttons is None:
+                    first_buttons = getattr(m, "buttons", None)
+
+                if m.media:
+                    fpath = await client.download_media(m.media)
+                    files.append(fpath)
+                else:
+                    if m.message:
+                        await client.send_message(send_to, m.message)
+
+            if files:
+                await client.send_file(
+                    send_to,
+                    files,
+                    caption=first_caption or "",
+                    buttons=first_buttons,
+                    link_preview=False
+                )
+                for f in files:
+                    try:
+                        os.remove(f)
+                    except:
+                        pass
+
+        else:
+            buttons = getattr(message, "buttons", None)
+            text = message.message or ""
+
+            if message.media:
+                fpath = await client.download_media(message.media)
+                await client.send_file(
+                    send_to,
+                    fpath,
+                    caption=text,
+                    buttons=buttons,
+                    link_preview=False
+                )
+                try:
+                    os.remove(fpath)
+                except:
+                    pass
+            else:
+                await client.send_message(send_to, text, buttons=buttons)
+
+    except Exception as e:
+        await event.reply(f"🚨 Error: `{e}`")
+
+
+async def handle_save_command(event, client):
+    if not event.is_private:
+        return
+    
+    me = await client.get_me()
+    if event.sender_id != me.id:
+        return
+    
+    input_text = event.pattern_match.group(2).strip() if event.pattern_match.group(2) else ''
+    reply = await event.get_reply_message() if event.is_reply else None
+
+    target_chat = event.chat_id
+    links_part = input_text
+
+    # === PATCH: kalau input hanya target chat ===
+    if input_text and (re.match(r'^@?[a-zA-Z0-9_]+$', input_text) or re.match(r'^-?\d+$', input_text)):
+        target_chat_raw = input_text
+        target_chat = int(target_chat_raw) if target_chat_raw.lstrip("-").isdigit() else target_chat_raw
+        # ⬇️ ambil link dari reply, bukan dari input_text
+        if reply and reply.message:
+            links_part = reply.message.strip()
+        else:
+            await event.reply("❌ Harus reply pesan berisi link kalau cuma kasih target chat.")
+            return
+
+    # === Kalau input kosong tapi ada reply ===
+    if not links_part and reply and reply.message:
+        links_part = reply.message.strip()
+
+    # === Ambil semua link ===
+    matches = link_regex.findall(links_part)
+    if not matches:
+        await event.reply("❌ Tidak ada link valid.")
         return
 
-    loading = await event.reply(f"⏳ Memproses {len(urls)} link...")
+    loading = await event.reply(f"⏳ Memproses {len(matches)} link...")
 
-    for url in urls:
-        await process_downloader_link(event, client, url, send_to)
+    for chat_part, msg_id in matches:
+        await process_link(event, client, chat_part, int(msg_id), target_chat)
 
     try:
         await loading.delete()
     except:
         pass
 
+
+# === FITUR: CLEAR CHANNEL (KHUSUS CHANNEL) ===
+async def clearch_handler(event, client):
+    chat = await event.get_chat()
+
+    if not getattr(chat, "broadcast", False):
+        await event.reply("❌ /clearch hanya bisa dipakai di **channel**, bukan grup.")
+        return
+
+    perms = await client.get_permissions(chat, 'me')
+    if not perms.is_admin or not perms.delete_messages:
+        await event.reply("❌ Ubot tidak punya izin **delete messages** di channel ini.")
+        return
+
+    await event.reply("🧹 Menghapus semua pesan di channel...")
+
+    async for msg in client.iter_messages(chat.id):
+        try:
+            await msg.delete()
+        except:
+            pass
+
+    await client.send_message(chat.id, "✅ Semua pesan berhasil dihapus.")
+
+
+# === FITUR: WHOIS (KHUSUS PRIVATE) ===
+async def whois_handler(event, client):
+    if not event.is_private:
+        return
+
+    if not event.is_reply:
+        await event.reply("❌ Reply pesan user yang ingin kamu cek.")
+        return
+
+    reply = await event.get_reply_message()
+    user = await client.get_entity(reply.sender_id)
+
+    try:
+        full = await client(GetFullUserRequest(user.id))
+        bio = full.full_user.about or "-"
+    except Exception as e:
+        bio = f"⚠ Tidak bisa ambil bio: {e}"
+
+    phone = getattr(user, "phone", None)
+    phone = f"+{phone}" if phone and not phone.startswith("+") else (phone or "-")
+
+    text = (
+        f"👤 **WHOIS USER**\n\n"
+        f"🆔 ID: `{user.id}`\n"
+        f"👥 Nama: {user.first_name or '-'} {user.last_name or ''}\n"
+        f"🔗 Username: @{user.username if user.username else '-'}\n"
+        f"📖 Bio: {bio}\n"
+        f"⭐ Premium: {'Ya' if getattr(user, 'premium', False) else 'Tidak'}\n"
+        f"🤖 Bot: {'Ya' if user.bot else 'Tidak'}\n"
+        f"☎️ Nomor: {phone}\n"
+    )
+    
+    try:
+        # Ambil semua foto/video profil user
+        photos = await client.get_profile_photos(user.id, limit=10)  # batasi 10 biar aman
+        files = []
+        for p in photos:
+            fpath = await client.download_media(p)
+            files.append(fpath)
+
+        if files:
+            # Kirim sebagai media group (album)
+            await client.send_file(
+                event.chat_id,
+                files,
+                caption=text,
+                link_preview=False
+            )
+            # Hapus file lokal
+            for f in files:
+                try:
+                    os.remove(f)
+                except:
+                    pass
+        else:
+            await event.reply(text)
+    except Exception as e:
+        await event.reply(f"{text}\n\n⚠ Error ambil foto profil: {e}")
+
+
+# === FITUR: AUTO-PIN (KHUSUS PRIVATE) ===
+async def autopin_handler(event, client, keywords):
+    if not event.is_private:
+        return
+
+    if not keywords:
+        return
+
+    text = (event.message.message or "").lower()
+
+    if any(word.lower() in text for word in keywords):
+        try:
+            await client.pin_message(event.chat_id, event.message.id)
+        except:
+            pass
 
 
 # ========== BAGIAN 3 ==========
@@ -730,6 +542,12 @@ async def main():
             async def handler(event, c=client, lc=acc["log_channel"], la=acc["log_admin"]):
                 await anti_view_once_and_ttl(event, c, lc, la)
 
+        # === SPAM FORWARD ===
+        if "spam_forward" in acc["features"] and acc.get("spam_triggers"):
+            @client.on(events.NewMessage(incoming=True))
+            async def spam_handler(event, c=client, triggers=acc["spam_triggers"]):
+                await auto_forward_spam(event, c, triggers)
+
         # === PING ===
         if "ping" in acc["features"]:
             @client.on(events.NewMessage(pattern=r"^/ping$"))
@@ -740,11 +558,15 @@ async def main():
         if "heartbeat" in acc["features"]:
             asyncio.create_task(heartbeat(client, acc["log_admin"], acc["log_channel"], akun_nama))
 
-        # === DOWNLOADER (multi-link + target chat) ===
-        if "downloader" in acc["features"]:
-            @client.on(events.NewMessage(pattern=r'^/(d|download)(?:\s+|$)(.*)'))
-            async def downloader_handler(event, c=client):
-                await handle_downloader_multi(event, c)
+        # === SCHEDULED MESSAGE ===
+        if "scheduled_message" in acc["features"] and acc.get("scheduled_targets"):
+            asyncio.create_task(scheduled_message(client, acc["scheduled_targets"], akun_nama))
+
+        # === SAVE MEDIA / COLONG MEDIA ===
+        if "save_media" in acc["features"]:
+            @client.on(events.NewMessage(pattern=r'^/(save|s)(?:\s+|$)(.*)'))
+            async def save_handler(event, c=client):
+                await handle_save_command(event, c)
 
         # === CLEAR CHANNEL (KHUSUS CHANNEL) ===
         if "clearch" in acc["features"]:
@@ -757,6 +579,12 @@ async def main():
             @client.on(events.NewMessage(pattern=r"^/whois$"))
             async def whois(event, c=client):
                 await whois_handler(event, c)
+
+        # === AUTO-PIN (KHUSUS PRIVATE) ===
+        if "autopin" in acc["features"]:
+            @client.on(events.NewMessage(incoming=True))
+            async def autopin(event, c=client, kw=acc.get("autopin_keywords", [])):
+                await autopin_handler(event, c, kw)
 
         # === INFO RESTART ===
         text = (
