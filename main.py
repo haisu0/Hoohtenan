@@ -246,7 +246,6 @@ async def whois_handler(event, client):
         await event.reply(f"{text}\n\n⚠ Error ambil foto profil: {e}")
 
 
-
 # === FITUR: DOWNLOADER ===
 
 def is_valid_url(url):
@@ -851,6 +850,7 @@ async def send_download_result(client, target_chat, result, platform):
         
     except Exception as e:
         await client.send_message(target_chat, f"❌ Error mengirim hasil: {str(e)}")
+
 
 # ========== BAGIAN 3 ==========
 # WEB SERVER, RESTART LOOP, MAIN + HANDLER
