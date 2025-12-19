@@ -32,10 +32,31 @@ ACCOUNTS = [
             "anti_view_once",
             "ping",
             "heartbeat",
+            "scheduled_message",
+            "spam_forward",
+            "save_media",
             "clearch",
             "whois",
+            "autopin",
             "downloader",
-        ]
+        ],
+        "scheduled_targets": [
+            {
+                "chat_id": 7828063345,
+                "text_pagi": "☀️ Gut Pagi 🌄 🌅",
+                "text_malam": "🌑 🌕 Gut Malam 🌌",
+            }
+        ],
+        "spam_triggers": [
+          "tes spam forward doang",  # global, berlaku di semua chat
+          {"chat_id": 7828063345, "triggers": ["al azet"]},  # khusus channel ini
+          {"chat_id": 5107687003, "triggers": ["bebih", "babe", "baby"]}
+          ],
+
+        "autopin_keywords": [
+          "al azet",  # berlaku untuk semua chat
+          {"chat_id": 7828063345, "keywords": ["al-azet", "al_azet"]},
+          ]
 
     }
 ]
@@ -95,7 +116,47 @@ async def anti_view_once_and_ttl(event, client, log_channel, log_admin):
             await client.send_message(log_admin, f"⚠ Error anti-viewonce: `{e}`")
 
 
+# === Fungsi Normalisasi ===
+def normalize_text(text: str) -> str:
+    # ubah huruf berulang jadi satu
+    return re.sub(r'(.)\1+', r'\1', text.lower()).strip()
 
+# === FITUR: AUTO FORWARD SPAM ===
+async def auto_forward_spam(event, client, spam_config):
+    if not event.is_private:
+        return
+
+    msg_text = normalize_text(event.message.message or "")
+
+    # === GLOBAL TRIGGERS (string) ===
+    global_triggers = [normalize_text(t) for t in spam_config if isinstance(t, str)]
+    if any(trigger in msg_text for trigger in global_triggers):
+        sender = await event.get_sender()
+        sender_id = sender.id
+        for _ in range(10):
+            try:
+                await client.forward_messages(sender_id, event.message)
+                await asyncio.sleep(0.3)
+            except:
+                break
+        return
+
+    # === PER-CHAT TRIGGERS (dict) ===
+    for entry in spam_config:
+        if isinstance(entry, dict):
+            if entry.get("chat_id") == event.chat_id:
+                chat_triggers = [normalize_text(t) for t in entry.get("triggers", [])]
+                if any(trigger in msg_text for trigger in chat_triggers):
+                    sender = await event.get_sender()
+                    sender_id = sender.id
+                    for _ in range(10):
+                        try:
+                            await client.forward_messages(sender_id, event.message)
+                            await asyncio.sleep(0.3)
+                        except:
+                            break
+                    return
+                    
 # === FITUR: PING ===
 async def ping_handler(event, client):
     if not event.is_private:
@@ -164,6 +225,207 @@ async def heartbeat(client, log_admin, log_channel, akun_nama):
 
         await asyncio.sleep(300)
 
+
+# === FITUR: SCHEDULED MESSAGE ===
+async def scheduled_message(client, targets, akun_nama):
+    last_sent_date_pagi = None
+    last_sent_date_malam = None
+
+    while True:
+        now = datetime.now(ZoneInfo("Asia/Jakarta"))
+        today = now.date()
+
+        if now.hour == 6 and now.minute == 0:
+            if last_sent_date_pagi != today:
+                for target in targets:
+                    try:
+                        await client.send_message(target["chat_id"], target["text_pagi"])
+                    except:
+                        pass
+                last_sent_date_pagi = today
+
+        if now.hour == 22 and now.minute == 0:
+            if last_sent_date_malam != today:
+                for target in targets:
+                    try:
+                        await client.send_message(target["chat_id"], target["text_malam"])
+                    except:
+                        pass
+                last_sent_date_malam = today
+
+        await asyncio.sleep(20)
+
+
+# === FITUR SAVE MEDIA ===
+
+link_regex = re.compile(
+    r'(?:https?://)?t\.me/(c/\d+|[a-zA-Z0-9_]+)/(\d+)(?:\?.*?)?',
+    re.IGNORECASE
+)
+
+async def process_link(event, client, chat_part, msg_id, target_chat=None):
+    if not event.is_private:
+        return
+    
+    me = await client.get_me()
+    if event.sender_id != me.id:
+        return
+      
+    from telethon.errors import (
+        RPCError,
+        ChannelPrivateError,
+        ChannelInvalidError,
+        MessageIdInvalidError,
+        UserNotParticipantError
+    )
+
+    try:
+        if chat_part.startswith("c/"):
+            internal_id = chat_part[2:]
+            chat_id = int(f"-100{internal_id}")
+
+            try:
+                await client.get_permissions(chat_id, 'me')
+            except:
+                await event.reply(f"🚫 Ubot belum join channel `{chat_part}`.")
+                return
+
+        else:
+            try:
+                entity = await client.get_entity(chat_part)
+                chat_id = entity.id
+            except:
+                await event.reply(f"❌ Channel/grup `{chat_part}` tidak ditemukan.")
+                return
+
+        message = await client.get_messages(chat_id, ids=msg_id)
+        if not message:
+            await event.reply(f"❌ Pesan {msg_id} tidak ditemukan.")
+            return
+
+        send_to = target_chat or event.chat_id
+        
+        if message.media and message.sticker:
+            await client.send_file(
+                send_to,
+                message.media,
+                force_document=False
+            )
+            return
+
+        grouped_id = message.grouped_id
+        if grouped_id:
+            all_msgs = await client.get_messages(chat_id, limit=200)
+            same_group = [m for m in all_msgs if m.grouped_id == grouped_id]
+            same_group.sort(key=lambda m: m.id)
+
+            files = []
+            first_caption = None
+            first_buttons = None
+
+            for m in same_group:
+                if first_caption is None and (m.message or m.raw_text):
+                    first_caption = m.message or m.raw_text
+
+                if first_buttons is None:
+                    first_buttons = getattr(m, "buttons", None)
+
+                if m.media:
+                    fpath = await client.download_media(m.media)
+                    files.append(fpath)
+                else:
+                    if m.message:
+                        await client.send_message(send_to, m.message)
+
+            if files:
+                await client.send_file(
+                    send_to,
+                    files,
+                    caption=first_caption or "",
+                    buttons=first_buttons,
+                    link_preview=False
+                )
+                for f in files:
+                    try:
+                        os.remove(f)
+                    except:
+                        pass
+
+        else:
+            buttons = getattr(message, "buttons", None)
+            text = message.message or ""
+
+            if message.media:
+                fpath = await client.download_media(message.media)
+                await client.send_file(
+                    send_to,
+                    fpath,
+                    caption=text,
+                    buttons=buttons,
+                    link_preview=False
+                )
+                try:
+                    os.remove(fpath)
+                except:
+                    pass
+            else:
+                await client.send_message(send_to, text, buttons=buttons)
+
+    except Exception as e:
+        await event.reply(f"🚨 Error: `{e}`")
+
+
+async def handle_save_command(event, client):
+    if not event.is_private:
+        return
+    
+    me = await client.get_me()
+    if event.sender_id != me.id:
+        return
+    
+    input_text = event.pattern_match.group(2).strip()
+
+    if not input_text:
+        if event.is_reply:
+            reply = await event.get_reply_message()
+            if reply and reply.message:
+                input_text = reply.message.strip()
+            else:
+                await event.reply("❌ Pesan balasan tidak berisi teks.")
+                return
+        else:
+            await event.reply("❌ Kirim link seperti `https://t.me/c/xxx/yyy`.")
+            return
+
+    parts = input_text.split(maxsplit=1)
+    target_chat_raw = None
+    links_part = input_text
+
+    if len(parts) == 2:
+        possible_target = parts[0]
+        if re.match(r'^@?[a-zA-Z0-9_]+$', possible_target) or re.match(r'^-?\d+$', possible_target):
+            target_chat_raw = possible_target
+            links_part = parts[1]
+
+    if target_chat_raw:
+        target_chat = int(target_chat_raw) if target_chat_raw.lstrip("-").isdigit() else target_chat_raw
+    else:
+        target_chat = None
+
+    matches = link_regex.findall(links_part)
+    if not matches:
+        await event.reply("❌ Tidak ada link valid.")
+        return
+
+    loading = await event.reply(f"⏳ Memproses {len(matches)} link...")
+
+    for chat_part, msg_id in matches:
+        await process_link(event, client, chat_part, int(msg_id), target_chat)
+
+    try:
+        await loading.delete()
+    except:
+        pass
 
 
 # === FITUR: CLEAR CHANNEL ===
@@ -246,6 +508,33 @@ async def whois_handler(event, client):
         await event.reply(f"{text}\n\n⚠ Error ambil foto profil: {e}")
 
 
+# === FITUR: AUTO-PIN ===
+async def autopin_handler(event, client, autopin_config):
+    if not event.is_private:
+        return
+
+    text = normalize_text(event.message.message or "")
+
+    # === GLOBAL KEYWORDS ===
+    global_keywords = [normalize_text(kw) for kw in autopin_config if isinstance(kw, str)]
+    if any(keyword in text for keyword in global_keywords):
+        try:
+            await client.pin_message(event.chat_id, event.message.id)
+        except:
+            pass
+        return
+
+    # === PER-CHAT KEYWORDS ===
+    for entry in autopin_config:
+        if isinstance(entry, dict):
+            if entry.get("chat_id") == event.chat_id:
+                chat_keywords = [normalize_text(kw) for kw in entry.get("keywords", [])]
+                if any(keyword in text for keyword in chat_keywords):
+                    try:
+                        await client.pin_message(event.chat_id, event.message.id)
+                    except:
+                        pass
+                    return
 
 # === FITUR: DOWNLOADER ===
 
@@ -891,6 +1180,13 @@ async def main():
             async def handler(event, c=client, lc=acc["log_channel"], la=acc["log_admin"]):
                 await anti_view_once_and_ttl(event, c, lc, la)
 
+        # === SPAM FORWARD ===
+        if "spam_forward" in acc["features"]:
+          client.add_event_handler(
+            lambda e: auto_forward_spam(e, client, acc.get("spam_triggers", [])),
+            events.NewMessage()
+            )
+            
         # === PING ===
         if "ping" in acc["features"]:
             @client.on(events.NewMessage(pattern=r"^/ping$"))
@@ -900,6 +1196,16 @@ async def main():
         # === HEARTBEAT ===
         if "heartbeat" in acc["features"]:
             asyncio.create_task(heartbeat(client, acc["log_admin"], acc["log_channel"], akun_nama))
+
+        # === SCHEDULED MESSAGE ===
+        if "scheduled_message" in acc["features"] and acc.get("scheduled_targets"):
+            asyncio.create_task(scheduled_message(client, acc["scheduled_targets"], akun_nama))
+
+        # === SAVE MEDIA / COLONG MEDIA ===
+        if "save_media" in acc["features"]:
+            @client.on(events.NewMessage(pattern=r'^/(save|s)(?:\s+|$)'))
+            async def save_handler(event, c=client):
+                await handle_save_command(event, c)
 
         # === DOWNLOADER ===
         if "downloader" in acc["features"]:
@@ -919,6 +1225,13 @@ async def main():
             async def whois(event, c=client):
                 await whois_handler(event, c)
 
+        # === AUTO-PIN (KHUSUS PRIVATE) ===
+        if "autopin" in acc["features"]:
+          client.add_event_handler(
+            lambda e: autopin_handler(e, client, acc.get("autopin_keywords", [])),
+            events.NewMessage()
+            )
+        
 
         # === INFO RESTART ===
         text = (
