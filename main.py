@@ -18,6 +18,7 @@ from bs4 import BeautifulSoup
 from urllib.parse import urlparse, parse_qs, urlencode, unquote
 from telethon.tl.functions.account import UpdateProfileRequest
 from telethon.tl.functions.photos import UploadProfilePhotoRequest
+from telethon.tl.functions.photos import UploadProfilePhotoRequest, DeletePhotosRequest
 
 
 # === KONFIGURASI UTAMA ===
@@ -1094,7 +1095,7 @@ async def revert_handler(event, client):
         # Hapus foto clone
         photos = await client.get_profile_photos("me", limit=1)
         if photos:
-            await client.delete_profile_photos(photos[0].id)
+            await client(DeletePhotosRequest(id=[photos[0].id]))
 
         # Upload foto asli kembali
         if ORIGINAL_PROFILE["photo"]:
