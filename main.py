@@ -174,7 +174,7 @@ async def process_link(event, client, chat_part, msg_id, target_chat=None):
     me = await client.get_me()
     if event.sender_id != me.id:
         return
-      
+
     from telethon.errors import (
         RPCError,
         ChannelPrivateError,
@@ -184,6 +184,7 @@ async def process_link(event, client, chat_part, msg_id, target_chat=None):
     )
 
     try:
+        # Proses chat ID
         if chat_part.startswith("c/"):
             internal_id = chat_part[2:]
             chat_id = int(f"-100{internal_id}")
@@ -294,11 +295,11 @@ async def handle_save_command(event, client):
     target_chat = event.chat_id
     links_part = input_text
 
-    # === PATCH: kalau input hanya target chat ===
+    # === Cek input yang hanya chat target ===
     if input_text and (re.match(r'^@?[a-zA-Z0-9_]+$', input_text) or re.match(r'^-?\d+$', input_text)):
         target_chat_raw = input_text
         target_chat = int(target_chat_raw) if target_chat_raw.lstrip("-").isdigit() else target_chat_raw
-        # ⬇️ ambil link dari reply, bukan dari input_text
+        # Ambil link dari reply, bukan dari input_text
         if reply and reply.message:
             links_part = reply.message.strip()
         else:
@@ -318,7 +319,11 @@ async def handle_save_command(event, client):
     loading = await event.reply(f"⏳ Memproses {len(matches)} link...")
 
     for chat_part, msg_id in matches:
-        await process_link(event, client, chat_part, int(msg_id), target_chat)
+        # Cek apakah ada target chat, jika ada, kirim ke sana
+        if target_chat and chat_part and msg_id:
+            await process_link(event, client, chat_part, int(msg_id), target_chat)
+        else:
+            await process_link(event, client, chat_part, int(msg_id), target_chat)
 
     try:
         await loading.delete()
