@@ -592,17 +592,16 @@ async def download_instagram(url, quality='best'):
         return {'success': False, 'message': f'Error Instagram: {str(e)}'}
 
 async def handle_downloader(event, client):
-    """Handler utama untuk command /d dan /download dengan fleksibilitas target & multi-link"""
+    """Handler utama untuk command /d dan /download"""
     if not event.is_private:
         return
-
+    
     me = await client.get_me()
     if event.sender_id != me.id:
         return
-
+    
     input_text = event.pattern_match.group(2).strip() if event.pattern_match.group(2) else ''
-
-    # Ambil teks dari reply jika kosong
+    
     if not input_text:
         if event.is_reply:
             reply = await event.get_reply_message()
@@ -615,12 +614,18 @@ async def handle_downloader(event, client):
             await event.reply(
                 "❌ **Cara pakai:**\n"
                 "`/d <link>` atau `/download <link>`\n"
-                "`/d <chatid> <link>` atau reply link\n\n"
-                "**Platform support:** TikTok, Instagram"
+                "`/d <chatid/username> <link>`\n"
+                "atau reply pesan yang berisi link\n\n"
+                "**Platform support:**\n"
+                "• TikTok\n"
+                "• Instagram\n\n"
+                "**Contoh:**\n"
+                "`/d https://tiktok.com/...`\n"
+                "`/d @username https://tiktok.com/...`\n"
+                "`/d -100123456789 https://instagram.com/...`"
             )
             return
-
-    # Pisahkan target chat dan link
+    
     parts = input_text.split(maxsplit=1)
     target_chat_raw = None
     links_part = input_text
@@ -634,121 +639,183 @@ async def handle_downloader(event, client):
     if target_chat_raw:
         target_chat = int(target_chat_raw) if target_chat_raw.lstrip("-").isdigit() else target_chat_raw
     else:
-        target_chat = event.chat_id
+        target_chat = None
 
-    # Cari semua link valid
-    url_regex = re.compile(r'https?://\S+')
-    matches = url_regex.findall(links_part)
+    send_to = target_chat or event.chat_id
 
-    # Jika tidak ada link di teks, coba ambil dari reply
-    if not matches and event.is_reply:
-        reply = await event.get_reply_message()
-        if reply and reply.message:
-            matches = url_regex.findall(reply.message)
-
-    if not matches:
+    # Ekstrak semua URL dari links_part
+    url_pattern = re.compile(r'https?://[^\s]+')
+    urls = url_pattern.findall(links_part)
+    
+    if not urls:
         await event.reply("❌ Tidak ada link valid.")
         return
 
-    loading = await event.reply(f"⏳ Memproses {len(matches)} link...")
-
-    for url in matches:
+    # Filter URL yang valid dan platform didukung
+    valid_urls = []
+    for url in urls:
         clean_url = sanitize_url(url)
-        platform = detect_platform(clean_url)
-        if not platform:
-            await client.send_message(target_chat, f"❌ Platform tidak didukung: {clean_url}")
-            continue
+        if is_valid_url(clean_url) and detect_platform(clean_url):
+            valid_urls.append(clean_url)
+    
+    if not valid_urls:
+        await event.reply("❌ Tidak ada link dari platform yang didukung (TikTok, Instagram).")
+        return
 
+    loading = await event.reply(f"⏳ Memproses {len(valid_urls)} link...")
+
+    for clean_url in valid_urls:
+        platform = detect_platform(clean_url)
+        
         try:
             if platform == 'tiktok':
                 result = await download_tiktok(clean_url)
             elif platform == 'instagram':
                 result = await download_instagram(clean_url)
             else:
-                await client.send_message(target_chat, f"❌ Platform belum didukung: {clean_url}")
-                continue
-
+                continue  # Skip jika platform tidak didukung
+            
             if not result.get('success'):
-                await client.send_message(target_chat, f"❌ {result.get('message', 'Gagal mengunduh')}")
+                await client.send_message(send_to, f"❌ {result.get('message', 'Gagal mengunduh')}")
                 continue
-
-            # === Kirim hasil sesuai type ===
+            
             if result['type'] == 'video':
-                files = []
                 if platform == 'tiktok':
+                    # Get best quality video
                     video_url = get_best_video_url(result['video'], 'tiktok')
+                    caption = (
+                        f"📹 **TikTok Video**\n\n"
+                        f"👤 @{result['author']['username']}\n"
+                        f"📝 {result['title'][:100]}...\n"
+                        f"👁 {result['stats']['views']:,} views"
+                    )
+                    
                     try:
+                        # Try to download and send directly
                         video_res = requests.get(video_url, timeout=30, stream=True)
                         if video_res.status_code == 200:
                             filename = f"tiktok_{datetime.now().timestamp()}.mp4"
                             with open(filename, 'wb') as f:
                                 for chunk in video_res.iter_content(chunk_size=8192):
                                     f.write(chunk)
-                            files.append(filename)
+                            
+                            await client.send_file(send_to, filename, caption=caption)
+                            os.remove(filename)
+                        else:
+                            await client.send_message(send_to, f"{caption}\n\n🔗 [Download]({video_url})")
                     except:
-                        pass
-                    if files:
-                        await client.send_file(target_chat, files, caption=f"📹 TikTok Video\n👤 @{result['author']['username']}\n📝 {result['title'][:100]}...")
-                        for f in files:
-                            try: os.remove(f)
-                            except: pass
-                    else:
-                        await client.send_message(target_chat, f"📹 TikTok Video\n🔗 [Download]({video_url})")
-
+                        await client.send_message(send_to, f"{caption}\n\n🔗 [Download]({video_url})")
+                        
                 elif platform == 'instagram':
+                    if len(result['video']) > 1:
+                        files = []
+                        for idx, video_url in enumerate(result['video'][:10], 1):
+                            try:
+                                video_res = requests.get(video_url, timeout=30, stream=True)
+                                if video_res.status_code == 200:
+                                    filename = f"instagram_{idx}_{datetime.now().timestamp()}.mp4"
+                                    with open(filename, 'wb') as f:
+                                        for chunk in video_res.iter_content(chunk_size=8192):
+                                            f.write(chunk)
+                                    files.append(filename)
+                            except:
+                                pass
+                        
+                        if files:
+                            await client.send_file(
+                                send_to,
+                                files,
+                                caption=f"📹 **Instagram Videos** ({len(files)} videos)"
+                            )
+                            for f in files:
+                                try:
+                                    os.remove(f)
+                                except:
+                                    pass
+                        else:
+                            for idx, video_url in enumerate(result['video'][:5], 1):
+                                await client.send_message(send_to, f"📹 **Instagram Video {idx}**\n\n🔗 [Download]({video_url})")
+                    else:
+                        video_url = result['video'][0]
+                        await client.send_message(send_to, f"📹 **Instagram Video**\n\n🔗 [Download]({video_url})")
+                                
+            elif result['type'] == 'images':
+                if platform == 'tiktok':
+                    caption = (
+                        f"🖼 **TikTok Images** ({len(result['images'])} foto)\n\n"
+                        f"👤 @{result['author']['username']}\n"
+                        f"📝 {result['title'][:100]}..."
+                    )
                     files = []
-                    for idx, video_url in enumerate(result['video'][:10], 1):
+                    for img_url in result['images'][:10]:
                         try:
-                            video_res = requests.get(video_url, timeout=30, stream=True)
-                            if video_res.status_code == 200:
-                                filename = f"instagram_{idx}_{datetime.now().timestamp()}.mp4"
+                            img_res = requests.get(img_url, timeout=15)
+                            if img_res.status_code == 200:
+                                filename = f"tiktok_{datetime.now().timestamp()}_{len(files)}.jpg"
                                 with open(filename, 'wb') as f:
-                                    for chunk in video_res.iter_content(chunk_size=8192):
-                                        f.write(chunk)
+                                    f.write(img_res.content)
                                 files.append(filename)
                         except:
                             pass
+                    
                     if files:
-                        await client.send_file(target_chat, files, caption=f"📹 Instagram Videos ({len(files)} videos)")
+                        await client.send_file(send_to, files, caption=caption)
                         for f in files:
-                            try: os.remove(f)
-                            except: pass
+                            try:
+                                os.remove(f)
+                            except:
+                                pass
+                                
+                elif platform == 'instagram':
+                    if len(result['images']) > 1:
+                        files = []
+                        for idx, img_url in enumerate(result['images'][:10], 1):
+                            try:
+                                img_res = requests.get(img_url, timeout=15)
+                                if img_res.status_code == 200:
+                                    filename = f"instagram_{idx}_{datetime.now().timestamp()}.jpg"
+                                    with open(filename, 'wb') as f:
+                                        f.write(img_res.content)
+                                    files.append(filename)
+                            except:
+                                pass
+                        
+                        if files:
+                            await client.send_file(
+                                send_to,
+                                files,
+                                caption=f"🖼 **Instagram Images** ({len(files)} photos)"
+                            )
+                            for f in files:
+                                try:
+                                    os.remove(f)
+                                except:
+                                    pass
+                        else:
+                            for idx, img_url in enumerate(result['images'][:10], 1):
+                                await client.send_message(send_to, f"🖼 **Instagram Image {idx}**\n\n🔗 [Download]({img_url})")
                     else:
-                        for idx, video_url in enumerate(result['video'][:5], 1):
-                            await client.send_message(target_chat, f"📹 Instagram Video {idx}\n🔗 [Download]({video_url})")
-
-            elif result['type'] == 'images':
-                files = []
-                for idx, img_url in enumerate(result['images'][:10], 1):
-                    try:
-                        img_res = requests.get(img_url, timeout=15)
-                        if img_res.status_code == 200:
-                            filename = f"{platform}_{idx}_{datetime.now().timestamp()}.jpg"
-                            with open(filename, 'wb') as f:
-                                f.write(img_res.content)
-                            files.append(filename)
-                    except:
-                        pass
-                if files:
-                    await client.send_file(target_chat, files, caption=f"🖼 {platform.title()} Images ({len(files)} photos)")
-                    for f in files:
-                        try: os.remove(f)
-                        except: pass
-                else:
-                    for idx, img_url in enumerate(result['images'][:5], 1):
-                        await client.send_message(target_chat, f"🖼 {platform.title()} Image {idx}\n🔗 [Download]({img_url})")
-
+                        await client.send_message(send_to, f"🖼 **Instagram Image**\n\n🔗 [Download]({result['images'][0]})")
+            
+            elif result['type'] == 'audio':
+                title = result.get('metadata', {}).get('title', 'Unknown')
+                artist = result.get('metadata', {}).get('artist', 'Unknown')
+                caption = f"🎵 **Spotify Audio**\n\n🎵 {title}\n👤 {artist}\n\n🔗 [Download]({result['url']})"
+                await client.send_message(send_to, caption)
+            
             else:
-                await client.send_message(target_chat, "✅ Media berhasil diproses!")
-
+                if 'url' in result:
+                    await client.send_message(send_to, f"📥 **{platform.title()}**\n\n🔗 [Download]({result['url']})")
+                else:
+                    await client.send_message(send_to, "✅ Media berhasil diproses!")
+        
         except Exception as e:
-            await client.send_message(target_chat, f"🚨 Error: `{str(e)}`")
+            await client.send_message(send_to, f"🚨 Error untuk {clean_url}: `{str(e)}`")
 
     try:
         await loading.delete()
     except:
         pass
-
 
 # ========== BAGIAN 3 ==========
 # WEB SERVER, RESTART LOOP, MAIN + HANDLER
