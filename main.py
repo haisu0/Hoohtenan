@@ -31,23 +31,22 @@ ACCOUNTS = [
             "anti_view_once",
             "ping",
             "heartbeat",
-            "scheduled_message",
-            "spam_forward",
             "save_media",
             "clearch",
             "whois",
-            "autopin",
             "downloader",
-        ],
-        "scheduled_targets": [
-            {
-                "chat_id": 7828063345,
-                "text_pagi": "☀️ Gut Pagi 🌄 🌅",
-                "text_malam": "🌑 🌕 Gut Malam 🌌",
-            }
-        ],
-        "spam_triggers": ["bebih", "babe", "baby"],
-        "autopin_keywords": ["al azet", "al_azet", "al-azet"],
+        ]
+    },
+    {
+        "session": "1BVtsOMQBuzWf5RY6-41ijhTQc8RGVQWG4G1fb2KcM6Wt2cYgWKLwrIQgAiicn3EQyJzKqMeMz1dAC3CitORNE6IS-jbJiSqJfyUL_RRewtTED_FXc3ZaH1gCtCBg7RVIqEw-GH_9rROORb2mGsNoC524GZGnyfiJydaJjnWHC9DV7cEsTUFLObBpva2U5Ft3Y_HiHg3OWC_3NH6Sgv9Kh3MTKyQfAK6x9akpHIvmhtESXyszSU66wLu6mvmTmQ7yaA2570DOmeDGq60sV7sHF4M6cClNqHvZ9j5Xu6ODh4NICPrgmvgwyz1A8-dopiG9E-K3Bjga_UOI8wcogHW4DDVCStR5yHA=",
+        "log_channel": ,
+        "log_admin": 7828063345,
+        "features": [
+            "anti_view_once",
+            "ping",
+            "heartbeat",
+            "whois",
+        ]
     }
 ]
 
