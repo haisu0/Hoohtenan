@@ -288,35 +288,28 @@ async def handle_save_command(event, client):
     if event.sender_id != me.id:
         return
     
-    input_text = event.pattern_match.group(2).strip()
+    input_text = event.pattern_match.group(2).strip() if event.pattern_match.group(2) else ''
+    reply = await event.get_reply_message() if event.is_reply else None
 
-    if not input_text:
-        if event.is_reply:
-            reply = await event.get_reply_message()
-            if reply and reply.message:
-                input_text = reply.message.strip()
-            else:
-                await event.reply("❌ Pesan balasan tidak berisi teks.")
-                return
-        else:
-            await event.reply("❌ Kirim link seperti `https://t.me/c/xxx/yyy`.")
-            return
-
-    parts = input_text.split(maxsplit=1)
-    target_chat_raw = None
+    target_chat = event.chat_id
     links_part = input_text
 
-    if len(parts) == 2:
-        possible_target = parts[0]
-        if re.match(r'^@?[a-zA-Z0-9_]+$', possible_target) or re.match(r'^-?\d+$', possible_target):
-            target_chat_raw = possible_target
-            links_part = parts[1]
-
-    if target_chat_raw:
+    # === PATCH: kalau input hanya target chat ===
+    if input_text and (re.match(r'^@?[a-zA-Z0-9_]+$', input_text) or re.match(r'^-?\d+$', input_text)):
+        target_chat_raw = input_text
         target_chat = int(target_chat_raw) if target_chat_raw.lstrip("-").isdigit() else target_chat_raw
-    else:
-        target_chat = None
+        # ⬇️ ambil link dari reply, bukan dari input_text
+        if reply and reply.message:
+            links_part = reply.message.strip()
+        else:
+            await event.reply("❌ Harus reply pesan berisi link kalau cuma kasih target chat.")
+            return
 
+    # === Kalau input kosong tapi ada reply ===
+    if not links_part and reply and reply.message:
+        links_part = reply.message.strip()
+
+    # === Ambil semua link ===
     matches = link_regex.findall(links_part)
     if not matches:
         await event.reply("❌ Tidak ada link valid.")
