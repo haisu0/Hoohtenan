@@ -16,6 +16,8 @@ from telethon.tl.functions.users import GetFullUserRequest
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, parse_qs, urlencode, unquote
+from telethon.tl.functions.account import UpdateProfileRequest, UploadProfilePhotoRequest
+
 
 # === KONFIGURASI UTAMA ===
 API_ID = 20958475
@@ -1022,6 +1024,9 @@ ORIGINAL_PROFILE = {
 async def clone_handler(event, client):
     if not event.is_private:
         return
+    me = await client.get_me()
+    if event.sender_id != me.id:
+        return
 
     if not event.is_reply:
         await event.reply("❌ Reply pesan user yang ingin kamu clone.")
@@ -1031,12 +1036,11 @@ async def clone_handler(event, client):
     user = await client.get_entity(reply.sender_id)
 
     try:
-        # Simpan profil asli (sekali saja)
+        # Simpan profil asli sekali saja
         if ORIGINAL_PROFILE["first_name"] is None:
-            me = await client.get_me()
-            full = await client(GetFullUserRequest(me.id))
+            full_me = await client(GetFullUserRequest(me.id))
             ORIGINAL_PROFILE["first_name"] = me.first_name
-            ORIGINAL_PROFILE["bio"] = full.full_user.about or ""
+            ORIGINAL_PROFILE["bio"] = full_me.full_user.about or ""
             photos = await client.get_profile_photos("me", limit=1)
             if photos:
                 ORIGINAL_PROFILE["photo"] = photos[0]
@@ -1048,18 +1052,15 @@ async def clone_handler(event, client):
 
         # Ambil foto profil target
         photos = await client.get_profile_photos(user.id, limit=1)
-        photo_file = None
         if photos:
             photo_file = await client.download_media(photos[0])
-
-        # Update profil
-        if photo_file:
-            await client.upload_profile_photo(photo_file)
+            await client(UploadProfilePhotoRequest(file=photo_file))
             try:
                 os.remove(photo_file)
             except:
                 pass
 
+        # Update nama & bio
         await client(UpdateProfileRequest(
             first_name=target_name,
             about=target_bio
@@ -1070,9 +1071,11 @@ async def clone_handler(event, client):
     except Exception as e:
         await event.reply(f"⚠ Error clone: `{e}`")
 
-
 async def revert_handler(event, client):
     if not event.is_private:
+        return
+    me = await client.get_me()
+    if event.sender_id != me.id:
         return
 
     try:
@@ -1086,14 +1089,15 @@ async def revert_handler(event, client):
             about=ORIGINAL_PROFILE["bio"]
         ))
 
-        # Hapus foto clone, ganti ke foto asli
+        # Hapus foto clone
         photos = await client.get_profile_photos("me", limit=1)
         if photos:
             await client.delete_profile_photos(photos[0].id)
 
+        # Upload foto asli kembali
         if ORIGINAL_PROFILE["photo"]:
             photo_file = await client.download_media(ORIGINAL_PROFILE["photo"])
-            await client.upload_profile_photo(photo_file)
+            await client(UploadProfilePhotoRequest(file=photo_file))
             try:
                 os.remove(photo_file)
             except:
