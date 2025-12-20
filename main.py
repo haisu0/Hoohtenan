@@ -35,6 +35,9 @@ ACCOUNTS = [
             "clearch",
             "whois",
             "downloader",
+            "clone",
+            "revert",
+
         ]
     }
 ]
@@ -1008,6 +1011,99 @@ async def handle_downloader(event, client):
         except:
             pass
         await event.reply(f"❌ Terjadi error: {str(e)}")
+
+# === FITUR: CLONE & REVERT ===
+ORIGINAL_PROFILE = {
+    "first_name": None,
+    "bio": None,
+    "photo": None,
+}
+
+async def clone_handler(event, client):
+    if not event.is_private:
+        return
+
+    if not event.is_reply:
+        await event.reply("❌ Reply pesan user yang ingin kamu clone.")
+        return
+
+    reply = await event.get_reply_message()
+    user = await client.get_entity(reply.sender_id)
+
+    try:
+        # Simpan profil asli (sekali saja)
+        if ORIGINAL_PROFILE["first_name"] is None:
+            me = await client.get_me()
+            full = await client(GetFullUserRequest(me.id))
+            ORIGINAL_PROFILE["first_name"] = me.first_name
+            ORIGINAL_PROFILE["bio"] = full.full_user.about or ""
+            photos = await client.get_profile_photos("me", limit=1)
+            if photos:
+                ORIGINAL_PROFILE["photo"] = photos[0]
+
+        # Ambil profil target
+        full_target = await client(GetFullUserRequest(user.id))
+        target_bio = full_target.full_user.about or "-"
+        target_name = user.first_name or "Unknown"
+
+        # Ambil foto profil target
+        photos = await client.get_profile_photos(user.id, limit=1)
+        photo_file = None
+        if photos:
+            photo_file = await client.download_media(photos[0])
+
+        # Update profil
+        if photo_file:
+            await client.upload_profile_photo(photo_file)
+            try:
+                os.remove(photo_file)
+            except:
+                pass
+
+        await client(UpdateProfileRequest(
+            first_name=target_name,
+            about=target_bio
+        ))
+
+        await event.reply(f"✅ Sekarang saya clone jadi **{target_name}**")
+
+    except Exception as e:
+        await event.reply(f"⚠ Error clone: `{e}`")
+
+
+async def revert_handler(event, client):
+    if not event.is_private:
+        return
+
+    try:
+        if not ORIGINAL_PROFILE["first_name"]:
+            await event.reply("❌ Belum ada profil asli yang disimpan.")
+            return
+
+        # Kembalikan nama & bio
+        await client(UpdateProfileRequest(
+            first_name=ORIGINAL_PROFILE["first_name"],
+            about=ORIGINAL_PROFILE["bio"]
+        ))
+
+        # Hapus foto clone, ganti ke foto asli
+        photos = await client.get_profile_photos("me", limit=1)
+        if photos:
+            await client.delete_profile_photos(photos[0].id)
+
+        if ORIGINAL_PROFILE["photo"]:
+            photo_file = await client.download_media(ORIGINAL_PROFILE["photo"])
+            await client.upload_profile_photo(photo_file)
+            try:
+                os.remove(photo_file)
+            except:
+                pass
+
+        await event.reply("✅ Profil berhasil dikembalikan.")
+
+    except Exception as e:
+        await event.reply(f"⚠ Error revert: `{e}`")
+
 
 
 # ========== BAGIAN 3 ==========
