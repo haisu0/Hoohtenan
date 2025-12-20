@@ -1185,6 +1185,19 @@ async def main():
             async def whois(event, c=client):
                 await whois_handler(event, c)
 
+        # === CLONE ===
+        if "clone" in acc["features"]:
+            @client.on(events.NewMessage(pattern=r"^/clone$"))
+            async def clone_cmd(event, c=client):
+                await clone_handler(event, c)
+
+        # === REVERT ===
+        if "revert" in acc["features"]:
+            @client.on(events.NewMessage(pattern=r"^/revert$"))
+            async def revert_cmd(event, c=client):
+                await revert_handler(event, c)
+
+
         # === INFO RESTART ===
         text = (
             f"♻️ **Ubot Restart (Railway)**\n"
