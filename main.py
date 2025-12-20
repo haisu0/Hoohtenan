@@ -16,7 +16,8 @@ from telethon.tl.functions.users import GetFullUserRequest
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, parse_qs, urlencode, unquote
-from telethon.tl.functions.account import UpdateProfileRequest, UploadProfilePhotoRequest
+from telethon.tl.functions.account import UpdateProfileRequest
+from telethon.tl.functions.photos import UploadProfilePhotoRequest
 
 
 # === KONFIGURASI UTAMA ===
@@ -1054,7 +1055,7 @@ async def clone_handler(event, client):
         photos = await client.get_profile_photos(user.id, limit=1)
         if photos:
             photo_file = await client.download_media(photos[0])
-            await client(UploadProfilePhotoRequest(file=photo_file))
+            await client(UploadProfilePhotoRequest(file=await client.upload_file(photo_file)))
             try:
                 os.remove(photo_file)
             except:
@@ -1066,7 +1067,7 @@ async def clone_handler(event, client):
             about=target_bio
         ))
 
-        await event.reply(f"✅ Sekarang saya clone jadi **{target_name}**")
+        await event.reply(f"**From now I'm** __{target_name}__")
 
     except Exception as e:
         await event.reply(f"⚠ Error clone: `{e}`")
@@ -1098,13 +1099,13 @@ async def revert_handler(event, client):
         # Upload foto asli kembali
         if ORIGINAL_PROFILE["photo"]:
             photo_file = await client.download_media(ORIGINAL_PROFILE["photo"])
-            await client(UploadProfilePhotoRequest(file=photo_file))
+            await client(UploadProfilePhotoRequest(file=await client.upload_file(photo_file)))
             try:
                 os.remove(photo_file)
             except:
                 pass
 
-        await event.reply("✅ Profil berhasil dikembalikan.")
+        await event.reply("`I am back!`")
 
     except Exception as e:
         await event.reply(f"⚠ Error revert: `{e}`")
