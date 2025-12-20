@@ -208,7 +208,7 @@ async def process_link(event, client, chat_part, msg_id, target_chat=None):
             await event.reply(f"❌ Pesan {msg_id} tidak ditemukan.")
             return
 
-        send_to = target_chat or event.chat_id
+        send_to = target_chat or event.chat_id  # Tentukan chat target atau chat tempat command digunakan
         
         # === PATCH: cek kalau media adalah sticker ===
         if message.media and message.sticker:
@@ -292,13 +292,14 @@ async def handle_save_command(event, client):
     input_text = event.pattern_match.group(2).strip() if event.pattern_match.group(2) else ''
     reply = await event.get_reply_message() if event.is_reply else None
 
-    target_chat = event.chat_id
+    target_chat = event.chat_id  # Default: chat tempat command digunakan
     links_part = input_text
 
     # === Cek input yang hanya chat target ===
     if input_text and (re.match(r'^@?[a-zA-Z0-9_]+$', input_text) or re.match(r'^-?\d+$', input_text)):
         target_chat_raw = input_text
         target_chat = int(target_chat_raw) if target_chat_raw.lstrip("-").isdigit() else target_chat_raw
+        
         # Ambil link dari reply, bukan dari input_text
         if reply and reply.message:
             links_part = reply.message.strip()
