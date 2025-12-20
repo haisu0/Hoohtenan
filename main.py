@@ -1071,6 +1071,7 @@ async def clone_handler(event, client):
     except Exception as e:
         await event.reply(f"⚠ Error clone: `{e}`")
 
+
 async def revert_handler(event, client):
     if not event.is_private:
         return
@@ -1107,7 +1108,6 @@ async def revert_handler(event, client):
 
     except Exception as e:
         await event.reply(f"⚠ Error revert: `{e}`")
-
 
 
 # ========== BAGIAN 3 ==========
@@ -1200,7 +1200,6 @@ async def main():
             @client.on(events.NewMessage(pattern=r"^/revert$"))
             async def revert_cmd(event, c=client):
                 await revert_handler(event, c)
-
 
         # === INFO RESTART ===
         text = (
