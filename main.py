@@ -1073,7 +1073,6 @@ async def handle_downloader(event, client):
 
 
 
-
 # ===== Util: deteksi & normalisasi =====
 
 IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.webp'}
