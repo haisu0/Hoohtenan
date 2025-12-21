@@ -22,6 +22,7 @@ from telethon.tl.functions.photos import DeletePhotosRequest, UploadProfilePhoto
 
 
 
+
 # === KONFIGURASI UTAMA ===
 API_ID = 20958475
 API_HASH = '1cfb28ef51c138a027786e43a27a8225'
@@ -1017,10 +1018,6 @@ async def handle_downloader(event, client):
             pass
         await event.reply(f"❌ Terjadi error: {str(e)}")
 
-from telethon.tl.functions.account import UpdateProfileRequest
-from telethon.tl.functions.photos import UploadProfilePhotoRequest, DeletePhotosRequest
-from telethon.tl.types import InputPhoto
-from telethon.tl.functions.users import GetFullUserRequest
 
 # Variabel global untuk menyimpan profil asli
 original_profile = {
