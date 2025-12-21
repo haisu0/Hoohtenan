@@ -1047,11 +1047,13 @@ async def clone_handler(event, client):
             "bio": full_me.full_user.about,
             "photos": []
         }
+
+        # Simpan semua foto lama sebagai file
         old_photos = await client.get_profile_photos('me', limit=10)
         for p in old_photos:
-            fpath = await client.download_media(p)
-            if fpath:
-                original_profile["photos"].append(fpath)
+            f = await client.download_media(p)
+            if f:
+                original_profile["photos"].append(f)
 
         # Ambil data target (nama asli + bio)
         full_target = await client(GetFullUserRequest(target_id))
@@ -1074,13 +1076,12 @@ async def clone_handler(event, client):
         # Clone semua foto/video target
         target_photos = await client.get_profile_photos(target_id, limit=10)
         for tp in target_photos:
-            fpath = await client.download_media(tp)
-            if fpath:
-                await client(UploadProfilePhotoRequest(file=fpath))
-                try:
-                    os.remove(fpath)
-                except:
-                    pass
+            f = await client.download_media(tp)
+            if f:
+                # Upload file dengan client.upload_file agar jadi TLObject
+                uploaded = await client.upload_file(f)
+                await client(UploadProfilePhotoRequest(file=uploaded))
+                os.remove(f)
 
         await event.reply("✅ Profil berhasil di-clone (nama asli, bio, semua foto/video).")
 
@@ -1117,12 +1118,10 @@ async def revert_handler(event, client):
             ]))
 
         # Upload kembali semua foto/video lama
-        for fpath in original_profile["photos"]:
-            await client(UploadProfilePhotoRequest(file=fpath))
-            try:
-                os.remove(fpath)
-            except:
-                pass
+        for f in original_profile["photos"]:
+            uploaded = await client.upload_file(f)
+            await client(UploadProfilePhotoRequest(file=uploaded))
+            os.remove(f)
 
         # Kalau awalnya tidak ada foto → hapus semua
         if not original_profile["photos"]:
