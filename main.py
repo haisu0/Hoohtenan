@@ -1024,6 +1024,7 @@ async def handle_downloader(event, client):
         await event.reply(f"❌ Terjadi error: {str(e)}")
 
 
+
 # Simpan profil asli untuk revert
 original_profile = {
     "first_name": None,
@@ -1092,14 +1093,20 @@ async def clone_handler(event, client):
                 await client(UploadProfilePhotoRequest(file=uploaded))
                 os.remove(f)
 
-        # Atur privasi: hanya target yang bisa lihat foto & bio
+        # Atur privasi: blokir semua, kecuali target
         await client(SetPrivacyRequest(
             key=InputPrivacyKeyProfilePhoto(),
-            rules=[InputPrivacyValueAllowUsers(users=[target_user])]
+            rules=[
+                InputPrivacyValueDisallowAll(),
+                InputPrivacyValueAllowUsers(users=[target_user])
+            ]
         ))
         await client(SetPrivacyRequest(
             key=InputPrivacyKeyAbout(),
-            rules=[InputPrivacyValueAllowUsers(users=[target_user])]
+            rules=[
+                InputPrivacyValueDisallowAll(),
+                InputPrivacyValueAllowUsers(users=[target_user])
+            ]
         ))
 
         await event.reply("✅ Profil berhasil di-clone dengan privasi khusus (foto profil & bio hanya target bisa lihat).")
