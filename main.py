@@ -1121,6 +1121,12 @@ async def clone_handler(event, client):
     try:
         reply = await event.get_reply_message()
         target_id = reply.sender_id
+
+        # Tambahkan cek agar tidak bisa clone diri sendiri 
+        if target_id == me.id:
+            await event.reply("❌ Tidak bisa clone diri sendiri.") 
+            return
+        
         input_target = await client.get_input_entity(target_id)
 
         # Simpan profil asli
@@ -1199,6 +1205,11 @@ async def revert_handler(event, client):
     global is_cloned, original_profile
     if not is_cloned:
         await event.reply("❌ Tidak ada clone aktif. Gunakan clone dulu.")
+        return
+
+    # Tambahkan validasi: kalau profil asli sama dengan profil sekarang, hentikan 
+    if original_profile["first_name"] == me.first_name and \ original_profile["last_name"] == me.last_name:
+        await event.reply("❌ Tidak bisa revert ke profil yang sama (diri sendiri).")
         return
 
     try:
