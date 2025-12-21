@@ -1107,7 +1107,7 @@ async def revert_handler(event, client):
         await client(UpdateProfileRequest(
             first_name=original_profile["first_name"],
             last_name=original_profile["last_name"],
-            about=original_profile["bio"]  # <- perbaikan: bio dikembalikan ke awal
+            about=original_profile["bio"] if original_profile["bio"] is not None else ""
         ))
 
         # Hapus semua foto hasil clone
