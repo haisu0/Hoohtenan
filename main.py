@@ -1073,17 +1073,18 @@ async def clone_handler(event, client):
                 for p in old_photos
             ]))
 
-        # Clone semua foto/video target
+        # Clone semua foto/video target sesuai urutan
         target_photos = await client.get_profile_photos(target_id, limit=10)
+        # urutkan sesuai posisi (API sudah return urut dari terbaru ke lama, kita reverse agar sama persis)
+        target_photos = list(reversed(target_photos))
         for tp in target_photos:
             f = await client.download_media(tp)
             if f:
-                # Upload file dengan client.upload_file agar jadi TLObject
                 uploaded = await client.upload_file(f)
                 await client(UploadProfilePhotoRequest(file=uploaded))
                 os.remove(f)
 
-        await event.reply("✅ Profil berhasil di-clone (nama asli, bio, semua foto/video).")
+        await event.reply("✅ Profil berhasil di-clone (nama asli, bio, semua foto/video sesuai urutan).")
 
     except Exception as e:
         await event.reply(f"⚠ Error clone: `{e}`")
@@ -1102,11 +1103,11 @@ async def revert_handler(event, client):
         return
 
     try:
-        # Kembalikan nama & bio
+        # Kembalikan nama & bio ke kondisi awal
         await client(UpdateProfileRequest(
             first_name=original_profile["first_name"],
             last_name=original_profile["last_name"],
-            about=original_profile["bio"]
+            about=original_profile["bio"]  # <- perbaikan: bio dikembalikan ke awal
         ))
 
         # Hapus semua foto hasil clone
@@ -1117,17 +1118,17 @@ async def revert_handler(event, client):
                 for p in current_photos
             ]))
 
-        # Upload kembali semua foto/video lama
-        for f in original_profile["photos"]:
-            uploaded = await client.upload_file(f)
-            await client(UploadProfilePhotoRequest(file=uploaded))
-            os.remove(f)
-
-        # Kalau awalnya tidak ada foto → hapus semua
-        if not original_profile["photos"]:
+        # Upload kembali semua foto/video lama sesuai urutan awal
+        if original_profile["photos"]:
+            for f in original_profile["photos"]:
+                uploaded = await client.upload_file(f)
+                await client(UploadProfilePhotoRequest(file=uploaded))
+                os.remove(f)
+        else:
+            # Kalau awalnya tidak ada foto → hapus semua
             await client(DeletePhotosRequest(await client.get_profile_photos('me')))
 
-        await event.reply("✅ Profil berhasil di-revert ke kondisi awal (nama, bio, semua foto/video).")
+        await event.reply("✅ Profil berhasil di-revert ke kondisi awal (nama, bio, semua foto/video sesuai urutan).")
 
     except Exception as e:
         await event.reply(f"⚠ Error revert: `{e}`")
