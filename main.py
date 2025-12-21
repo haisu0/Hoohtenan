@@ -5,6 +5,7 @@ import asyncio
 import os
 import re
 import mimetypes
+from telethon import types
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
