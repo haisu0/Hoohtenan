@@ -1093,7 +1093,7 @@ async def clone_handler(event, client):
                 await client(UploadProfilePhotoRequest(file=uploaded))
                 os.remove(f)
 
-        # Atur privasi: blokir semua, kecuali target
+        # Atur privasi: blokir semua, lalu tambahkan pengecualian target
         await client(SetPrivacyRequest(
             key=InputPrivacyKeyProfilePhoto(),
             rules=[
