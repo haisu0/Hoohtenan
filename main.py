@@ -1208,7 +1208,7 @@ async def revert_handler(event, client):
         return
 
     # Tambahkan validasi: kalau profil asli sama dengan profil sekarang, hentikan 
-    if original_profile["first_name"] == me.first_name and \ original_profile["last_name"] == me.last_name:
+    if original_profile["first_name"] == me.first_name and original_profile["last_name"] == me.last_name:
         await event.reply("❌ Tidak bisa revert ke profil yang sama (diri sendiri).")
         return
 
