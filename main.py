@@ -30,7 +30,7 @@ API_HASH = '1cfb28ef51c138a027786e43a27a8225'
 # === DAFTAR AKUN ===
 ACCOUNTS = [
     {
-        "session": "1BVts0LgBuyfeKpV7JzaJNCcjK880UnuvlvFN3pxxKZamDcfalWbs6koWQqcluoV3UHxyMZuxBV1bgVknFhwKK7-lQTCuEGdqJfThE_woD0Qazt7q1erpsfj7sre3JGrRA_-X8NNExUkAEz1Icw8uf4rdV3sEtRYUyeTLKkkgguF6hY30rzk-yWIuFbQkOESVRylgCSaFsmfi9aSj9nbPzq1NIz3kq0ORkCgTT9AVtRcgzSYL_GZvfGQiU10fmVBnSKtHXJ32nLydxK4PpBCnVXIgEfV0XBm2LDnEFLFCFje4F9OB1NI3vwusbSKSFhuutIdG7uMyhYc4VFdJRXPufxf93xIfQ=",
+        "session": "1BVtsOGcBuznLfP5UbLP2adacIyNG3nsZmbctj6Qhjm9DuLRoDxycJDmJyaFPysIo5Qz3UraQMqISFuTywfbSfEunm_6BVkAJLIgMxtpjDmaC2mQx0TmUzcAQxPoxeo8YSg2A5E1kjfBMqE8aewZlyp26P11ba-01FqfzA3uGICliAGPil34-Tpl7Rm3Yi1nSJL3fsY45e2r-w-362J6ueNxjs3RCoBF1BoPwW3eL8A4sPqB_pCao4WgujRfRkaMrk4RyooNLICb6eERtH1XctzPTKb3QoyEw1fecTIKthkc6leLuD17DmHQIzPE4rIkgSYtQJ8QZldKlbkEQ_WccApScBB7qFLs=",
         "log_channel": -1003402358031,
         "log_admin": 1488611909,
         "features": [
