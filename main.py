@@ -17,8 +17,9 @@ import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, parse_qs, urlencode, unquote
 from telethon.tl.functions.account import UpdateProfileRequest
-from telethon.tl.functions.photos import UploadProfilePhotoRequest
-from telethon.tl.functions.photos import UploadProfilePhotoRequest, DeletePhotosRequest
+from telethon.tl.types import InputPhoto
+from telethon.tl.functions.photos import DeletePhotosRequest, UploadProfilePhotoRequest
+
 
 
 # === KONFIGURASI UTAMA ===
@@ -1074,39 +1075,42 @@ async def clone_handler(event, client):
         await event.reply(f"⚠ Error clone: `{e}`")
 
 
+# === FITUR: REVERT FOTO PROFIL ===
 async def revert_handler(event, client):
     if not event.is_private:
         return
-    me = await client.get_me()
-    if event.sender_id != me.id:
-        return
 
     try:
-        if not ORIGINAL_PROFILE["first_name"]:
-            await event.reply("❌ Belum ada profil asli yang disimpan.")
+        # Ambil semua foto profil user (akun sendiri)
+        photos = await client.get_profile_photos('me', limit=2)
+
+        if not photos or len(photos) < 2:
+            await event.reply("❌ Tidak ada foto lama untuk revert.")
             return
 
-        # Kembalikan nama & bio
-        await client(UpdateProfileRequest(
-            first_name=ORIGINAL_PROFILE["first_name"],
-            about=ORIGINAL_PROFILE["bio"]
+        # Foto pertama = current, foto kedua = previous
+        current_photo = photos[0]
+        previous_photo = photos[1]
+
+        # Hapus foto profil sekarang
+        await client(DeletePhotosRequest([
+            InputPhoto(
+                id=current_photo.id,
+                access_hash=current_photo.access_hash,
+                file_reference=current_photo.file_reference
+            )
+        ]))
+
+        # Upload kembali foto lama
+        await client(UploadProfilePhotoRequest(
+            id=InputPhoto(
+                id=previous_photo.id,
+                access_hash=previous_photo.access_hash,
+                file_reference=previous_photo.file_reference
+            )
         ))
 
-        # Hapus foto clone
-        photos = await client.get_profile_photos("me", limit=1)
-        if photos:
-            await client(DeletePhotosRequest(id=[photos[0].id]))
-
-        # Upload foto asli kembali
-        if ORIGINAL_PROFILE["photo"]:
-            photo_file = await client.download_media(ORIGINAL_PROFILE["photo"])
-            await client(UploadProfilePhotoRequest(file=await client.upload_file(photo_file)))
-            try:
-                os.remove(photo_file)
-            except:
-                pass
-
-        await event.reply("`I am back!`")
+        await event.reply("✅ Foto profil berhasil di-revert ke foto sebelumnya.")
 
     except Exception as e:
         await event.reply(f"⚠ Error revert: `{e}`")
