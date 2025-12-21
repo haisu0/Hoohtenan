@@ -1024,11 +1024,11 @@ original_profile = {
     "first_name": None,
     "last_name": None,
     "bio": None,
-    "photos": []
+    "photos": []  # list foto/video lama
 }
 
+# === CLONE ===
 async def clone_handler(event, client):
-    # === CEK WAJIB REPLY ===
     if not event.is_reply:
         await event.reply("❌ Harus reply pesan user yang mau di-clone.")
         return
@@ -1061,7 +1061,7 @@ async def clone_handler(event, client):
             about=full_target.full_user.about
         ))
 
-        # Hapus foto lama
+        # Hapus semua foto lama
         if old_photos:
             await client(DeletePhotosRequest([
                 InputPhoto(id=p.id, access_hash=p.access_hash, file_reference=p.file_reference)
@@ -1074,17 +1074,18 @@ async def clone_handler(event, client):
             file = await client.download_media(tp)
             await client(UploadProfilePhotoRequest(file=file))
 
-        await event.reply("✅ Profil berhasil di-clone dari user reply.")
+        await event.reply("✅ Profil berhasil di-clone (nama asli, bio, semua foto/video).")
 
     except Exception as e:
         await event.reply(f"⚠ Error clone: `{e}`")
 
-# === FITUR REVERT ===
+
+# === REVERT ===
 async def revert_handler(event, client):
-    # === CEK APAKAH ADA DATA LAMA ===
+    # Cek apakah ada data lama
     if not original_profile["first_name"] and not original_profile["last_name"] \
        and not original_profile["bio"] and not original_profile["photos"]:
-        await event.reply("❌ Tidak ada data profil lama untuk dikembalikan. Gunakan fitur clone dulu.")
+        await event.reply("❌ Tidak ada data profil lama untuk dikembalikan. Gunakan clone dulu.")
         return
 
     try:
@@ -1103,7 +1104,7 @@ async def revert_handler(event, client):
                 for p in current_photos
             ]))
 
-        # Upload kembali semua foto lama
+        # Upload kembali semua foto/video lama
         for op in original_profile["photos"]:
             await client(UploadProfilePhotoRequest(
                 id=InputPhoto(
@@ -1117,11 +1118,10 @@ async def revert_handler(event, client):
         if not original_profile["photos"]:
             await client(DeletePhotosRequest(await client.get_profile_photos('me')))
 
-        await event.reply("✅ Profil berhasil di-revert ke kondisi awal.")
+        await event.reply("✅ Profil berhasil di-revert ke kondisi awal (nama, bio, semua foto/video).")
 
     except Exception as e:
         await event.reply(f"⚠ Error revert: `{e}`")
-
 
 # ========== BAGIAN 3 ==========
 # WEB SERVER, RESTART LOOP, MAIN + HANDLER
