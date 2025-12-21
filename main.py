@@ -1088,19 +1088,32 @@ async def _upload_profile_media(client, path):
         # Jika tipe tak dikenali, paksa sebagai gambar agar tidak error ekstensi
         return await client(UploadProfilePhotoRequest(file=uploaded))
 
-# ===== State original untuk revert =====
 
+# ===== State global =====
 original_profile = {
     "first_name": None,
     "last_name": None,
     "bio": None,
-    "photos": [],           # simpan path file media lama (foto/video)
-    "privacy_photo": None,  # rules lama foto profil
-    "privacy_bio": None     # rules lama bio
+    "photos": [],
+    "privacy_photo": None,
+    "privacy_bio": None
 }
+is_cloned = False   # flag status clone aktif/tidak
 
 # === FITUR: CLONE ===
 async def clone_handler(event, client):
+    if not event.is_private:
+        return
+
+    me = await client.get_me()
+    if event.sender_id != me.id:
+        return
+    
+    global is_cloned, original_profile
+    if is_cloned:
+        await event.reply("❌ Tidak bisa clone lagi sebelum di-revert.")
+        return
+
     if not event.is_reply:
         await event.reply("❌ Harus reply pesan user yang mau di-clone.")
         return
@@ -1108,14 +1121,11 @@ async def clone_handler(event, client):
     try:
         reply = await event.get_reply_message()
         target_id = reply.sender_id
-
-        # Ambil InputUser untuk pengecualian privasi (HARUS InputUser)
         input_target = await client.get_input_entity(target_id)
 
-        # Simpan profil asli akun sendiri
+        # Simpan profil asli
         me = await client.get_me()
         full_me = await client(GetFullUserRequest(me.id))
-        global original_profile
         original_profile = {
             "first_name": me.first_name,
             "last_name": me.last_name,
@@ -1125,95 +1135,81 @@ async def clone_handler(event, client):
             "privacy_bio": await client(GetPrivacyRequest(InputPrivacyKeyAbout()))
         }
 
-        # Simpan semua media lama (foto/video) sebagai file
+        # Simpan foto lama
         old_photos = await client.get_profile_photos('me', limit=10)
         for p in old_photos:
             f = await client.download_media(p)
             if f:
-                # Normalisasi ekstensi, simpan path valid
-                f_valid = _ensure_valid_extension(f)
-                # Hindari duplikasi simpan
-                if f_valid not in original_profile["photos"]:
-                    original_profile["photos"].append(f_valid)
+                original_profile["photos"].append(f)
 
-        # Ambil data target (nama asli + bio)
+        # Ambil data target
         full_target = await client(GetFullUserRequest(target_id))
         target_user = full_target.users[0] if hasattr(full_target, "users") else full_target.user
 
-        # Update nama & bio sesuai target
+        # Update nama & bio
         await client(UpdateProfileRequest(
             first_name=target_user.first_name,
             last_name=target_user.last_name,
             about=full_target.full_user.about
         ))
 
-        # Hapus semua media lama dari profil
+        # Hapus foto lama
         if old_photos:
             await client(DeletePhotosRequest([
                 InputPhoto(id=p.id, access_hash=p.access_hash, file_reference=p.file_reference)
                 for p in old_photos
             ]))
 
-        # Clone semua media target (foto/video) sesuai urutan
+        # Clone foto target
         target_photos = await client.get_profile_photos(target_id, limit=10)
-        # urutkan: API return terbaru → lama; kita reverse agar sama persis urutan tampilan
         target_photos = list(reversed(target_photos))
-
         for tp in target_photos:
             f = await client.download_media(tp)
-            if not f:
-                continue
-            # Normalisasi dan upload sesuai tipe (foto/video)
-            f_valid = _ensure_valid_extension(f)
-            await _upload_profile_media(client, f_valid)
-            # Hapus file sementara hasil download
-            try:
-                os.remove(f_valid)
-            except Exception:
-                pass
+            if f:
+                uploaded = await client.upload_file(f)
+                await client(UploadProfilePhotoRequest(file=uploaded))
+                os.remove(f)
 
-        # Atur privasi: blokir semua, tambahkan pengecualian target
+        # Atur privasi: blokir semua, kecuali target
         await client(SetPrivacyRequest(
             key=InputPrivacyKeyProfilePhoto(),
-            rules=[
-                InputPrivacyValueDisallowAll(),
-                InputPrivacyValueAllowUsers(users=[input_target])
-            ]
+            rules=[InputPrivacyValueDisallowAll(), InputPrivacyValueAllowUsers(users=[input_target])]
         ))
         await client(SetPrivacyRequest(
             key=InputPrivacyKeyAbout(),
-            rules=[
-                InputPrivacyValueDisallowAll(),
-                InputPrivacyValueAllowUsers(users=[input_target])
-            ]
+            rules=[InputPrivacyValueDisallowAll(), InputPrivacyValueAllowUsers(users=[input_target])]
         ))
 
-        await event.reply("✅ Clone sukses: media (foto/video) terunggah sesuai urutan, dan privasi diblokir kecuali target.")
+        is_cloned = True
+        await event.reply("✅ Clone berhasil. Sekarang hanya bisa revert sebelum clone lagi.")
 
     except Exception as e:
         await event.reply(f"⚠ Error clone: `{e}`")
 
+
 # === FITUR: REVERT ===
 async def revert_handler(event, client):
-    global original_profile
-    if not original_profile or (
-        not original_profile.get("first_name") and
-        not original_profile.get("last_name") and
-        not original_profile.get("bio") and
-        not original_profile.get("photos")
-    ):
-        await event.reply("❌ Tidak ada data profil lama untuk dikembalikan. Gunakan clone dulu.")
+    if not event.is_private:
+        return
+
+    me = await client.get_me()
+    if event.sender_id != me.id:
+        return
+    
+    global is_cloned, original_profile
+    if not is_cloned:
+        await event.reply("❌ Tidak ada clone aktif. Gunakan clone dulu.")
         return
 
     try:
-        # Kembalikan nama & bio ke kondisi awal
+        # Kembalikan nama & bio
         await client(UpdateProfileRequest(
             first_name=original_profile["first_name"],
             last_name=original_profile["last_name"],
-            about=original_profile["bio"] if original_profile["bio"] is not None else ""
+            about=original_profile["bio"] if original_profile["bio"] else ""
         ))
 
-        # Hapus semua media hasil clone
+        # Hapus foto hasil clone
         current_photos = await client.get_profile_photos('me', limit=10)
         if current_photos:
             await client(DeletePhotosRequest([
@@ -1221,28 +1217,14 @@ async def revert_handler(event, client):
                 for p in current_photos
             ]))
 
-        # Upload kembali semua media lama sesuai urutan awal
+        # Upload kembali foto lama
         if original_profile["photos"]:
             for f in original_profile["photos"]:
-                # Pastikan path masih ada; jika tidak, skip
-                if not os.path.exists(f):
-                    continue
-                await _upload_profile_media(client, f)
-                # Hapus file backup lokal setelah diunggah (opsional)
-                try:
-                    os.remove(f)
-                except Exception:
-                    pass
-        else:
-            # Kalau awalnya tidak ada media → hapus semua tetap
-            remaining = await client.get_profile_photos('me')
-            if remaining:
-                await client(DeletePhotosRequest([
-                    InputPhoto(id=p.id, access_hash=p.access_hash, file_reference=p.file_reference)
-                    for p in remaining
-                ]))
+                uploaded = await client.upload_file(f)
+                await client(UploadProfilePhotoRequest(file=uploaded))
+                os.remove(f)
 
-        # Revert privasi ke semula
+        # Revert privasi
         if original_profile["privacy_photo"]:
             await client(SetPrivacyRequest(
                 key=InputPrivacyKeyProfilePhoto(),
@@ -1254,7 +1236,17 @@ async def revert_handler(event, client):
                 rules=original_profile["privacy_bio"].rules
             ))
 
-        await event.reply("✅ Revert sukses: nama, bio, media, dan privasi kembali seperti semula.")
+        is_cloned = False
+        original_profile = {
+            "first_name": None,
+            "last_name": None,
+            "bio": None,
+            "photos": [],
+            "privacy_photo": None,
+            "privacy_bio": None
+        }
+
+        await event.reply("✅ Revert berhasil. Clone bisa digunakan lagi, revert tidak bisa sebelum clone.")
 
     except Exception as e:
         await event.reply(f"⚠ Error revert: `{e}`")
