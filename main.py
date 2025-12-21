@@ -1045,6 +1045,9 @@ async def clone_handler(event, client):
         reply = await event.get_reply_message()
         target_id = reply.sender_id
 
+        # Ambil InputUser untuk pengecualian privasi (ini penting!)
+        input_target = await client.get_input_entity(target_id)
+
         # Simpan profil asli akun sendiri
         me = await client.get_me()
         full_me = await client(GetFullUserRequest(me.id))
@@ -1065,7 +1068,7 @@ async def clone_handler(event, client):
             if f:
                 original_profile["photos"].append(f)
 
-        # Ambil data target
+        # Ambil data target untuk cloning nama & bio
         full_target = await client(GetFullUserRequest(target_id))
         target_user = full_target.users[0] if hasattr(full_target, "users") else full_target.user
 
@@ -1093,23 +1096,23 @@ async def clone_handler(event, client):
                 await client(UploadProfilePhotoRequest(file=uploaded))
                 os.remove(f)
 
-        # Atur privasi: blokir semua, lalu tambahkan pengecualian target
+        # Atur privasi: blokir semua, lalu tambahkan pengecualian target (HARUS InputUser)
         await client(SetPrivacyRequest(
             key=InputPrivacyKeyProfilePhoto(),
             rules=[
                 InputPrivacyValueDisallowAll(),
-                InputPrivacyValueAllowUsers(users=[target_user])
+                InputPrivacyValueAllowUsers(users=[input_target])
             ]
         ))
         await client(SetPrivacyRequest(
             key=InputPrivacyKeyAbout(),
             rules=[
                 InputPrivacyValueDisallowAll(),
-                InputPrivacyValueAllowUsers(users=[target_user])
+                InputPrivacyValueAllowUsers(users=[input_target])
             ]
         ))
 
-        await event.reply("✅ Profil berhasil di-clone dengan privasi khusus (foto profil & bio hanya target bisa lihat).")
+        await event.reply("✅ Profil berhasil di-clone dengan privasi khusus: semua diblokir, hanya target bisa lihat foto profil & bio.")
 
     except Exception as e:
         await event.reply(f"⚠ Error clone: `{e}`")
@@ -1152,7 +1155,7 @@ async def revert_handler(event, client):
         else:
             await client(DeletePhotosRequest(await client.get_profile_photos('me')))
 
-        # Revert privasi ke semula
+        # Revert privasi ke semula (pakai rules yang disimpan)
         if original_profile["privacy_photo"]:
             await client(SetPrivacyRequest(
                 key=InputPrivacyKeyProfilePhoto(),
