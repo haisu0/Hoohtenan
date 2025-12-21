@@ -1027,6 +1027,7 @@ original_profile = {
     "photos": []  # simpan file path foto/video lama
 }
 
+# === FITUR: CLONE ===
 async def clone_handler(event, client):
     if not event.is_reply:
         await event.reply("❌ Harus reply pesan user yang mau di-clone.")
@@ -1039,26 +1040,27 @@ async def clone_handler(event, client):
         # Simpan profil asli akun sendiri
         me = await client.get_me()
         full_me = await client(GetFullUserRequest(me.id))
-        original_profile["first_name"] = me.first_name
-        original_profile["last_name"] = me.last_name
-        original_profile["bio"] = full_me.full_user.about
-
-        # Simpan semua foto/video lama sebagai file
-        original_profile["photos"] = []
-        old_photos = await client.get_profile_photos('me', limit=0)
+        global original_profile
+        original_profile = {
+            "first_name": me.first_name,
+            "last_name": me.last_name,
+            "bio": full_me.full_user.about,
+            "photos": []
+        }
+        old_photos = await client.get_profile_photos('me', limit=10)
         for p in old_photos:
-            f = await client.download_media(p)
-            if f:
-                original_profile["photos"].append(f)
+            fpath = await client.download_media(p)
+            if fpath:
+                original_profile["photos"].append(fpath)
 
         # Ambil data target (nama asli + bio)
         full_target = await client(GetFullUserRequest(target_id))
-        target_entity = full_target.users[0] if hasattr(full_target, "users") else full_target.user
+        target_user = full_target.users[0] if hasattr(full_target, "users") else full_target.user
 
         # Update nama & bio sesuai target
         await client(UpdateProfileRequest(
-            first_name=target_entity.first_name,
-            last_name=target_entity.last_name,
+            first_name=target_user.first_name,
+            last_name=target_user.last_name,
             about=full_target.full_user.about
         ))
 
@@ -1070,21 +1072,31 @@ async def clone_handler(event, client):
             ]))
 
         # Clone semua foto/video target
-        target_photos = await client.get_profile_photos(target_id, limit=0)
+        target_photos = await client.get_profile_photos(target_id, limit=10)
         for tp in target_photos:
-            file = await client.download_media(tp)
-            if file:
-                await client(UploadProfilePhotoRequest(file=file))
-                os.remove(file)  # hapus file sementara
+            fpath = await client.download_media(tp)
+            if fpath:
+                await client(UploadProfilePhotoRequest(file=fpath))
+                try:
+                    os.remove(fpath)
+                except:
+                    pass
 
         await event.reply("✅ Profil berhasil di-clone (nama asli, bio, semua foto/video).")
 
     except Exception as e:
         await event.reply(f"⚠ Error clone: `{e}`")
 
+
+# === FITUR: REVERT ===
 async def revert_handler(event, client):
-    if not original_profile["first_name"] and not original_profile["last_name"] \
-       and not original_profile["bio"] and not original_profile["photos"]:
+    global original_profile
+    if not original_profile or (
+        not original_profile.get("first_name") and
+        not original_profile.get("last_name") and
+        not original_profile.get("bio") and
+        not original_profile.get("photos")
+    ):
         await event.reply("❌ Tidak ada data profil lama untuk dikembalikan. Gunakan clone dulu.")
         return
 
@@ -1097,17 +1109,20 @@ async def revert_handler(event, client):
         ))
 
         # Hapus semua foto hasil clone
-        current_photos = await client.get_profile_photos('me', limit=0)
+        current_photos = await client.get_profile_photos('me', limit=10)
         if current_photos:
             await client(DeletePhotosRequest([
                 InputPhoto(id=p.id, access_hash=p.access_hash, file_reference=p.file_reference)
                 for p in current_photos
             ]))
 
-        # Upload kembali semua foto/video lama dari file
-        for f in original_profile["photos"]:
-            await client(UploadProfilePhotoRequest(file=f))
-            os.remove(f)  # hapus file sementara setelah upload
+        # Upload kembali semua foto/video lama
+        for fpath in original_profile["photos"]:
+            await client(UploadProfilePhotoRequest(file=fpath))
+            try:
+                os.remove(fpath)
+            except:
+                pass
 
         # Kalau awalnya tidak ada foto → hapus semua
         if not original_profile["photos"]:
