@@ -1114,10 +1114,14 @@ async def clone_handler(event, client):
         await event.reply(f"⚠ Error clone: `{e}`")
 
 
-# === FITUR: REVERT ===
 async def revert_handler(event, client):
     global original_profile, original_privacy
-    if not original_profile:
+    if not original_profile or (
+        not original_profile.get("first_name") and
+        not original_profile.get("last_name") and
+        not original_profile.get("bio") and
+        not original_profile.get("photos")
+    ):
         await event.reply("❌ Tidak ada data profil lama untuk dikembalikan. Gunakan clone dulu.")
         return
 
@@ -1129,7 +1133,7 @@ async def revert_handler(event, client):
             about=original_profile["bio"] if original_profile["bio"] is not None else ""
         ))
 
-        # Hapus foto hasil clone
+        # Hapus semua foto hasil clone
         current_photos = await client.get_profile_photos('me', limit=10)
         if current_photos:
             await client(DeletePhotosRequest([
@@ -1143,17 +1147,33 @@ async def revert_handler(event, client):
                 uploaded = await client.upload_file(f)
                 await client(UploadProfilePhotoRequest(file=uploaded))
                 os.remove(f)
+        else:
+            await client(DeletePhotosRequest(await client.get_profile_photos('me')))
 
-        # Restore privasi ke kondisi awal
-        if original_privacy["photos"]:
+        # === Restore privacy rules ===
+        # Foto profil
+        if original_privacy.get("photos") and original_privacy["photos"].rules:
             await client(SetPrivacyRequest(
                 key=InputPrivacyKeyProfilePhoto(),
                 rules=original_privacy["photos"].rules
             ))
-        if original_privacy["bio"]:
+        else:
+            # fallback: izinkan semua kalau tidak ada aturan tersimpan
+            await client(SetPrivacyRequest(
+                key=InputPrivacyKeyProfilePhoto(),
+                rules=[InputPrivacyValueAllowAll()]
+            ))
+
+        # Bio (about)
+        if original_privacy.get("bio") and original_privacy["bio"].rules:
             await client(SetPrivacyRequest(
                 key=InputPrivacyKeyAbout(),
                 rules=original_privacy["bio"].rules
+            ))
+        else:
+            await client(SetPrivacyRequest(
+                key=InputPrivacyKeyAbout(),
+                rules=[InputPrivacyValueAllowAll()]
             ))
 
         await event.reply("✅ Profil berhasil di-revert + privasi dikembalikan seperti semula.")
