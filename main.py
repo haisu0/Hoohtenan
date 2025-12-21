@@ -756,7 +756,7 @@ async def handle_downloader(event, client):
                 caption = (
                     f"📹 **TikTok Video**\n\n"
                     f"👤 **Author:** @{result['author']['username']}\n"
-                    f"📝 **Title:** {result['title'][:100]}{'...' if len(result['title']) > 100 else ''}\n"
+                    f"📝 **Title:** {result['title']}\n"
                     f"⏱ **Duration:** {result['duration']}s\n"
                     f"👁 **Views:** {result['stats']['views']:,}\n"
                     f"❤️ **Likes:** {result['stats']['likes']:,}\n"
