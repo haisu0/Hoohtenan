@@ -391,16 +391,33 @@ async def whois_handler(event, client):
     phone = getattr(user, "phone", None)
     phone = f"+{phone}" if phone and not phone.startswith("+") else (phone or "-")
 
+    # Ambil informasi tambahan
+    dc_id = getattr(user, "dc_id", "-")
+    verified = "Ya" if getattr(user, "verified", False) else "Tidak"
+    scam = "Ya" if getattr(user, "scam", False) else "Tidak"
+    restricted = "Ya" if getattr(user, "restricted", False) else "Tidak"
+    premium = "Ya" if getattr(user, "premium", False) else "Tidak"
+    status = getattr(user, "status", "-")
+    common_chats = await client.get_common_chats(user.id)
+
     text = (
         f"👤 **WHOIS USER**\n\n"
         f"🆔 ID: `{user.id}`\n"
         f"👥 Nama: {user.first_name or '-'} {user.last_name or ''}\n"
         f"🔗 Username: @{user.username if user.username else '-'}\n"
+        f"📞 Phone: {phone}\n"
         f"📖 Bio: {bio}\n"
-        f"⭐ Premium: {'Ya' if getattr(user, 'premium', False) else 'Tidak'}\n"
+        f"🏛️ DC ID: {dc_id}\n"
         f"🤖 Bot: {'Ya' if user.bot else 'Tidak'}\n"
+        f"🚷 Scam: {scam}\n"
+        f"🚫 Restricted: {restricted}\n"
+        f"✅ Verified: {verified}\n"
+        f"⭐ Premium: {premium}\n"
+        f"👁️ Last Seen: {status}\n"
+        f"👀 Same Groups: {len(common_chats)}\n"
+        f"🔗 Permanent Link: [Klik di sini](tg://user?id={user.id})\n"
     )
-    
+
     try:
         photos = await client.get_profile_photos(user.id, limit=10)
         files = []
@@ -421,7 +438,7 @@ async def whois_handler(event, client):
                 except:
                     pass
         else:
-            await event.reply(text)
+            await event.reply(text, link_preview=False)
     except Exception as e:
         await event.reply(f"{text}\n\n⚠ Error ambil foto profil: {e}")
 
