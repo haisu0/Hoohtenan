@@ -12,7 +12,9 @@ from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from flask import Flask
 from threading import Thread
+
 from telethon.tl.functions.users import GetFullUserRequest
+from telethon.tl.functions.messages import GetCommonChatsRequest
 
 import requests
 from bs4 import BeautifulSoup
@@ -370,7 +372,6 @@ async def clearch_handler(event, client):
     await client.send_message(chat.id, "✅ Semua pesan berhasil dihapus.")
 
 
-# === FITUR: WHOIS ===
 async def whois_handler(event, client):
     if not event.is_private:
         return
@@ -388,23 +389,31 @@ async def whois_handler(event, client):
     except Exception as e:
         bio = f"⚠ Tidak bisa ambil bio: {e}"
 
+    # Informasi dasar
     phone = getattr(user, "phone", None)
     phone = f"+{phone}" if phone and not phone.startswith("+") else (phone or "-")
-
-    # Ambil informasi tambahan
     dc_id = getattr(user, "dc_id", "-")
     verified = "Ya" if getattr(user, "verified", False) else "Tidak"
     scam = "Ya" if getattr(user, "scam", False) else "Tidak"
     restricted = "Ya" if getattr(user, "restricted", False) else "Tidak"
     premium = "Ya" if getattr(user, "premium", False) else "Tidak"
     status = getattr(user, "status", "-")
-    common_chats = await client.get_common_chats(user.id)
+    fullname = f"{user.first_name or '-'} {user.last_name or ''}".strip()
+    username = f"@{user.username}" if user.username else "-"
 
+    # Grup bersama
+    try:
+        common = await client(GetCommonChatsRequest(user_id=user.id, max_id=0, limit=100))
+        common_count = len(common.chats)
+    except Exception as e:
+        common_count = f"⚠ Error ambil grup bersama: {e}"
+
+    # Format teks
     text = (
         f"👤 **WHOIS USER**\n\n"
         f"🆔 ID: `{user.id}`\n"
-        f"👥 Nama: {user.first_name or '-'} {user.last_name or ''}\n"
-        f"🔗 Username: @{user.username if user.username else '-'}\n"
+        f"👥 Nama: {fullname}\n"
+        f"🔗 Username: {username}\n"
         f"📞 Phone: {phone}\n"
         f"📖 Bio: {bio}\n"
         f"🏛️ DC ID: {dc_id}\n"
@@ -414,10 +423,11 @@ async def whois_handler(event, client):
         f"✅ Verified: {verified}\n"
         f"⭐ Premium: {premium}\n"
         f"👁️ Last Seen: {status}\n"
-        f"👀 Same Groups: {len(common_chats)}\n"
+        f"👀 Same Groups: {common_count}\n"
         f"🔗 Permanent Link: [Klik di sini](tg://user?id={user.id})\n"
     )
 
+    # Ambil foto profil
     try:
         photos = await client.get_profile_photos(user.id, limit=10)
         files = []
