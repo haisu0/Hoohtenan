@@ -1057,7 +1057,7 @@ async def clone_handler(event, client):
 
         # Ambil data target (nama asli + bio)
         full_target = await client(GetFullUserRequest(target_id))
-        target_user = full_target.user
+        target_user = full_target.users[0]
 
         # Update nama & bio sesuai target
         await client(UpdateProfileRequest(
