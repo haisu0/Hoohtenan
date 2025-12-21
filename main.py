@@ -817,7 +817,10 @@ async def handle_downloader(event, client):
                     f"🖼 **TikTok Slideshow** ({total_images} foto)\n\n"
                     f"👤 **Author:** @{result['author']['username']}\n"
                     f"📝 **Title:** {result['title'][:100]}{'...' if len(result['title']) > 100 else ''}\n"
-                    f"👁 **Views:** {result['stats']['views']:,}"
+                    f"⏱ **Duration:** {result['duration']}s\n"
+                    f"👁 **Views:** {result['stats']['views']:,}\n"
+                    f"❤️ **Likes:** {result['stats']['likes']:,}\n"
+                    f"💬 **Comments:** {result['stats']['comments']:,}"
                 )
                 
                 # Download semua gambar
