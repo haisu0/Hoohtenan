@@ -397,28 +397,9 @@ async def whois_handler(event, client):
     scam = "Ya" if getattr(user, "scam", False) else "Tidak"
     restricted = "Ya" if getattr(user, "restricted", False) else "Tidak"
     premium = "Ya" if getattr(user, "premium", False) else "Tidak"
+    status = getattr(user, "status", "-")
     fullname = f"{user.first_name or '-'} {user.last_name or ''}".strip()
     username = f"@{user.username}" if user.username else "-"
-
-    # Status / Last Seen
-    status_text = "-"
-    if hasattr(user, "status") and user.status:
-        cname = user.status.__class__.__name__
-        if cname == "UserStatusOffline":
-            last_seen = user.status.was_online
-            if last_seen:
-                local_time = last_seen.astimezone(ZoneInfo("Asia/Jakarta"))
-                status_text = local_time.strftime("%H:%M:%S || %d-%m-%Y")
-        elif cname == "UserStatusOnline":
-            status_text = "Sedang online"
-        elif cname == "UserStatusRecently":
-            status_text = "Baru saja online"
-        elif cname == "UserStatusLastWeek":
-            status_text = "Online minggu lalu"
-        elif cname == "UserStatusLastMonth":
-            status_text = "Online bulan lalu"
-        else:
-            status_text = cname.replace("UserStatus", "")
 
     # Grup bersama
     try:
@@ -441,7 +422,7 @@ async def whois_handler(event, client):
         f"🚫 Restricted: {restricted}\n"
         f"✅ Verified: {verified}\n"
         f"⭐ Premium: {premium}\n"
-        f"👁️ Last Seen: {status_text}\n"
+        f"👁️ Last Seen: {status}\n"
         f"👀 Same Groups: {common_count}\n"
         f"🔗 Permanent Link: [Klik di sini](tg://user?id={user.id})\n"
     )
