@@ -32,7 +32,7 @@ API_HASH = "1cfb28ef51c138a027786e43a27a8225"
 
 ACCOUNTS = [
     {
-        "session": "ISI_SESSION_KAMU",
+        "session": "1BVts0LgBuyfeKpV7JzaJNCcjK880UnuvlvFN3pxxKZamDcfaWbs6koWQqcluoV3UHxyMZuxBV1bgVknFhwKK7-iQTCuEGdqJfThE_woDOQazt7q1erpsfj7sre3JGrRA_-X8NNEXUkAEz1Icw8uf4rdV3sEtRYUyeTLKkkgguF6hY30rzK-yWIuFbQkOESVRylgCSaFsmfi9aSj9nbPzq1NIz3kqo0RkCgTI9AVtRcgzSYL_GZvfGQiiU10fmvBnsKlhxJ32nlywdxK4PpBCnvxIqEfv0xBm2LDnEFLLFcFje4F90BiNI3vWusbSKSFhuufldG7uMyhYc4VFdJRXPufxf93xIfQ=",
         "log_channel": -1003402358031,
         "log_admin": 1488611909,
         "features": [
