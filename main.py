@@ -1076,7 +1076,60 @@ async def clone_handler(event, client):
 
 
 # === FITUR: REVERT FOTO PROFIL ===
-async def revert_handler(event, client): if not event.is_private: return try: # Ambil semua foto profil akun sendiri photos = await client.get_profile_photos('me', limit=2) if not photos: # Tidak ada foto sama sekali → hapus semua (default avatar) await client(DeletePhotosRequest(await client.get_profile_photos('me'))) await event.reply("✅ Foto profil dihapus, kembali ke default avatar.") return if len(photos) == 1: # Hanya ada 1 foto (current) → hapus saja await client(DeletePhotosRequest([ InputPhoto( id=photos[0].id, access_hash=photos[0].access_hash, file_reference=photos[0].file_reference ) ])) await event.reply("✅ Foto profil dihapus, kembali ke default avatar.") return # Kalau ada lebih dari 1 foto → revert ke foto sebelumnya current_photo = photos[0] previous_photo = photos[1] # Hapus foto profil sekarang await client(DeletePhotosRequest([ InputPhoto( id=current_photo.id, access_hash=current_photo.access_hash, file_reference=current_photo.file_reference ) ])) # Set foto lama sebagai profil await client(UploadProfilePhotoRequest( id=InputPhoto( id=previous_photo.id, access_hash=previous_photo.access_hash, file_reference=previous_photo.file_reference ) )) await event.reply("✅ Foto profil berhasil di-revert ke foto sebelumnya.") except Exception as e: await event.reply(f"⚠ Error revert: `{e}`")
+async def revert_handler(event, client):
+    if not event.is_private:
+        return
+
+    try:
+        # Ambil semua foto profil akun sendiri
+        photos = await client.get_profile_photos('me', limit=2)
+
+        if not photos:
+            # Tidak ada foto sama sekali → hapus semua (default avatar)
+            await client(DeletePhotosRequest(await client.get_profile_photos('me')))
+            await event.reply("✅ Foto profil dihapus, kembali ke default avatar.")
+            return
+
+        if len(photos) == 1:
+            # Hanya ada 1 foto (current) → hapus saja
+            await client(DeletePhotosRequest([
+                InputPhoto(
+                    id=photos[0].id,
+                    access_hash=photos[0].access_hash,
+                    file_reference=photos[0].file_reference
+                )
+            ]))
+            await event.reply("✅ Foto profil dihapus, kembali ke default avatar.")
+            return
+
+        # Kalau ada lebih dari 1 foto → revert ke foto sebelumnya
+        current_photo = photos[0]
+        previous_photo = photos[1]
+
+        # Hapus foto profil sekarang
+        await client(DeletePhotosRequest([
+            InputPhoto(
+                id=current_photo.id,
+                access_hash=current_photo.access_hash,
+                file_reference=current_photo.file_reference
+            )
+        ]))
+
+        # Set foto lama sebagai profil
+        await client(UploadProfilePhotoRequest(
+            id=InputPhoto(
+                id=previous_photo.id,
+                access_hash=previous_photo.access_hash,
+                file_reference=previous_photo.file_reference
+            )
+        ))
+
+        await event.reply("✅ Foto profil berhasil di-revert ke foto sebelumnya.")
+
+    except Exception as e:
+        await event.reply(f"⚠ Error revert: `{e}`")
+
+
 # ========== BAGIAN 3 ==========
 # WEB SERVER, RESTART LOOP, MAIN + HANDLER
 
