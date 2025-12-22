@@ -26,8 +26,9 @@ from telethon.tl.functions.photos import DeletePhotosRequest, UploadProfilePhoto
 
 from telethon.tl.functions.account import GetPrivacyRequest, SetPrivacyRequest
 from telethon.tl.types import (
-    InputPrivacyKeyProfilePhoto, InputPrivacyKeyAbout,
-    InputPrivacyValueAllowUsers, InputPrivacyValueDisallowAll
+    InputPrivacyKeyProfilePhoto, InputPrivacyKeyAbout, InputPrivacyKeyBirthday,
+    InputPrivacyValueDisallowAll, InputPrivacyValueAllowUsers,
+    InputPhoto
 )
 
 
@@ -1076,13 +1077,12 @@ async def handle_downloader(event, client):
 
 
 
-# ===== Util: deteksi & normalisasi =====
 
+# ===== Util: deteksi & normalisasi =====
 IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.webp'}
 VIDEO_EXTS = {'.mp4', '.webm', '.mkv', '.mov'}
 
 def _ensure_valid_extension(path):
-    # Pastikan ada ekstensi yang cocok; kalau tidak ada, tebak dari mimetype
     base, ext = os.path.splitext(path)
     if ext.lower() in IMAGE_EXTS | VIDEO_EXTS:
         return path
@@ -1098,7 +1098,6 @@ def _ensure_valid_extension(path):
             os.rename(path, new_path)
             return new_path
 
-    # Default ke .jpg kalau tidak bisa ditebak
     new_path = base + '.jpg'
     os.rename(path, new_path)
     return new_path
@@ -1118,24 +1117,34 @@ def _is_video(path):
     return bool(guess and 'video' in guess)
 
 async def _upload_profile_media(client, path):
-    """
-    Upload sebuah media sebagai foto/video profil.
-    - Gambar → file=...
-    - Video  → video=... (Telegram akan menghasilkan thumbnail dari frame awal)
-    """
     valid_path = _ensure_valid_extension(path)
     fname = os.path.basename(valid_path)
-
     uploaded = await client.upload_file(valid_path, file_name=fname)
 
     if _is_video(valid_path):
-        # Video avatar (Telegram mendukung video profile). video_start_ts=0 untuk mulai dari awal.
         return await client(UploadProfilePhotoRequest(video=uploaded, video_start_ts=0.0))
     elif _is_image(valid_path):
         return await client(UploadProfilePhotoRequest(file=uploaded))
     else:
-        # Jika tipe tak dikenali, paksa sebagai gambar agar tidak error ekstensi
         return await client(UploadProfilePhotoRequest(file=uploaded))
+
+
+# ===== Format tanggal lahir =====
+def format_birthday(birthday_str):
+    """
+    Ubah format 'YYYY-MM-DD' → 'DD NamaBulan YYYY'
+    """
+    if not birthday_str:
+        return None
+    try:
+        dt = datetime.datetime.strptime(birthday_str, "%Y-%m-%d")
+        bulan = [
+            "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+            "Juli", "Agustus", "September", "Oktober", "November", "Desember"
+        ]
+        return f"{dt.day} {bulan[dt.month-1]} {dt.year}"
+    except Exception:
+        return birthday_str
 
 
 # ===== State global =====
@@ -1145,15 +1154,17 @@ original_profile = {
     "bio": None,
     "photos": [],
     "privacy_photo": None,
-    "privacy_bio": None
+    "privacy_bio": None,
+    "birthday": None,
+    "privacy_birthday": None
 }
-is_cloned = False   # flag status clone aktif/tidak
+is_cloned = False
+
 
 # === FITUR: CLONE ===
 async def clone_handler(event, client):
     if not event.is_private:
         return
-
     me = await client.get_me()
     if event.sender_id != me.id:
         return
@@ -1162,7 +1173,6 @@ async def clone_handler(event, client):
     if is_cloned:
         await event.reply("❌ Tidak bisa clone lagi sebelum di-revert.")
         return
-
     if not event.is_reply:
         await event.reply("❌ Harus reply pesan user yang mau di-clone.")
         return
@@ -1170,8 +1180,6 @@ async def clone_handler(event, client):
     try:
         reply = await event.get_reply_message()
         target_id = reply.sender_id
-
-        # Cek diri sendiri
         if target_id == me.id:
             await event.reply("❌ Tidak bisa clone diri sendiri.")
             return
@@ -1179,17 +1187,12 @@ async def clone_handler(event, client):
         full_target = await client(GetFullUserRequest(target_id))
         target_user = full_target.users[0] if hasattr(full_target, "users") else full_target.user
 
-        # Cek bot
         if getattr(target_user, "bot", False):
             await event.reply("❌ Tidak bisa clone akun bot.")
             return
-
-        # Cek akun deleted
         if getattr(target_user, "deleted", False):
             await event.reply("❌ Tidak bisa clone akun yang sudah dihapus.")
             return
-
-        # Cek akun verified
         if getattr(target_user, "verified", False):
             await event.reply("❌ Tidak bisa clone akun verified/resmi.")
             return
@@ -1205,25 +1208,23 @@ async def clone_handler(event, client):
             "bio": full_me.full_user.about,
             "photos": [],
             "privacy_photo": await client(GetPrivacyRequest(InputPrivacyKeyProfilePhoto())),
-            "privacy_bio": await client(GetPrivacyRequest(InputPrivacyKeyAbout()))
+            "privacy_bio": await client(GetPrivacyRequest(InputPrivacyKeyAbout())),
+            "birthday": getattr(full_me.full_user, "birthday", None),
+            "privacy_birthday": await client(GetPrivacyRequest(InputPrivacyKeyBirthday()))
         }
 
-        # Simpan foto lama
         old_photos = await client.get_profile_photos('me', limit=10)
         for p in old_photos:
             f = await client.download_media(p)
             if f:
                 original_profile["photos"].append(f)
 
-        # Ambil data target
-        full_target = await client(GetFullUserRequest(target_id))
-        target_user = full_target.users[0] if hasattr(full_target, "users") else full_target.user
-
-        # Update nama & bio
+        # Update nama, bio, dan tanggal lahir target
         await client(UpdateProfileRequest(
             first_name=target_user.first_name,
             last_name=target_user.last_name,
-            about=full_target.full_user.about
+            about=full_target.full_user.about,
+            birthday=getattr(full_target.full_user, "birthday", None)
         ))
 
         # Hapus foto lama
@@ -1252,9 +1253,15 @@ async def clone_handler(event, client):
             key=InputPrivacyKeyAbout(),
             rules=[InputPrivacyValueDisallowAll(), InputPrivacyValueAllowUsers(users=[input_target])]
         ))
+        await client(SetPrivacyRequest(
+            key=InputPrivacyKeyBirthday(),
+            rules=[InputPrivacyValueDisallowAll(), InputPrivacyValueAllowUsers(users=[input_target])]
+        ))
 
         is_cloned = True
-        await event.reply("✅ Clone berhasil. Sekarang hanya bisa revert sebelum clone lagi.")
+        bday = getattr(full_target.full_user, "birthday", None)
+        bday_fmt = format_birthday(bday) if bday else "Tidak ada"
+        await event.reply(f"✅ Clone berhasil.\nTanggal lahir: {bday_fmt}\nSekarang hanya bisa revert sebelum clone lagi.")
 
     except Exception as e:
         await event.reply(f"⚠ Error clone: `{e}`")
@@ -1264,7 +1271,6 @@ async def clone_handler(event, client):
 async def revert_handler(event, client):
     if not event.is_private:
         return
-
     me = await client.get_me()
     if event.sender_id != me.id:
         return
@@ -1275,11 +1281,12 @@ async def revert_handler(event, client):
         return
 
     try:
-        # Kembalikan nama & bio
+        # Kembalikan nama, bio, dan tanggal lahir
         await client(UpdateProfileRequest(
             first_name=original_profile["first_name"],
             last_name=original_profile["last_name"],
-            about=original_profile["bio"] if original_profile["bio"] else ""
+            about=original_profile["bio"] if original_profile["bio"] else "",
+            birthday=original_profile["birthday"] if original_profile["birthday"] else None
         ))
 
         # Hapus foto hasil clone
@@ -1308,21 +1315,30 @@ async def revert_handler(event, client):
                 key=InputPrivacyKeyAbout(),
                 rules=original_profile["privacy_bio"].rules
             ))
+        if original_profile["privacy_birthday"]:
+            await client(SetPrivacyRequest(
+                key=InputPrivacyKeyBirthday(),
+                rules=original_profile["privacy_birthday"].rules
+            ))
 
         is_cloned = False
+        bday_fmt = format_birthday(original_profile["birthday"]) if original_profile["birthday"] else "Tidak ada"
         original_profile = {
             "first_name": None,
             "last_name": None,
             "bio": None,
             "photos": [],
             "privacy_photo": None,
-            "privacy_bio": None
+            "privacy_bio": None,
+            "birthday": None,
+            "privacy_birthday": None
         }
 
-        await event.reply("✅ Revert berhasil. Clone bisa digunakan lagi, revert tidak bisa sebelum clone.")
+        await event.reply(f"✅ Revert berhasil.\nTanggal lahir dikembalikan: {bday_fmt}\nClone bisa digunakan lagi, revert tidak bisa sebelum clone.")
 
     except Exception as e:
         await event.reply(f"⚠ Error revert: `{e}`")
+
 
 
 # ========== BAGIAN 3 ==========
