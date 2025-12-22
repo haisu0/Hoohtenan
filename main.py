@@ -52,7 +52,6 @@ ACCOUNTS = [
             "downloader",
             "clone",
             "revert",
-            "profile",
 
         ]
     }
@@ -1150,9 +1149,6 @@ original_profile = {
 }
 is_cloned = False   # flag status clone aktif/tidak
 
-# Simpan nama lama khusus /getname untuk /delname
-previous_name_state = {"first_name": None, "last_name": None}
-
 # === FITUR: CLONE ===
 async def clone_handler(event, client):
     if not event.is_private:
@@ -1329,8 +1325,6 @@ async def revert_handler(event, client):
         await event.reply(f"⚠ Error revert: `{e}`")
 
 
-# ========== STATE ========== previous_name_state = {"first_name": None, "last_name": None} used_state = {"pp2": False, "bio2": False, "name2": False} async def _ensure_owner_private(event, client): if not event.is_private: return False me = await client.get_me() return event.sender_id == me.id # ========== FITUR PROFILE ========== async def getpp_handler(event, client): if not await _ensure_owner_private(event, client): return if not event.is_reply: return await event.reply("❌ Reply foto/video.") reply = await event.get_reply_message() fpath = await reply.download_media() uploaded = await client.upload_file(fpath) await client(UploadProfilePhotoRequest(file=uploaded)) os.remove(fpath) await event.reply("✅ Profil diperbarui.") async def delpp_handler(event, client): if not await _ensure_owner_private(event, client): return idx = (event.pattern_match.group(1) or "").strip() if not idx.isdigit(): return await event.reply("❌ Gunakan angka.") photos = await client.get_profile_photos('me', limit=100) i = int(idx)-1 if i<0 or i>=len(photos): return await event.reply("❌ Index tidak valid.") p = photos[i] await client(DeletePhotosRequest([InputPhoto(id=p.id,access_hash=p.access_hash,file_reference=p.file_reference)])) used_state["pp2"] = False await event.reply(f"✅ Foto profil ke-{i+1} dihapus.") async def getbio_handler(event, client): if not await _ensure_owner_private(event, client): return if not event.is_reply: return await event.reply("❌ Reply text.") reply = await event.get_reply_message() await client(UpdateProfileRequest(about=reply.message)) await event.reply("✅ Bio diperbarui.") async def delbio_handler(event, client): if not await _ensure_owner_private(event, client): return await client(UpdateProfileRequest(about="")) used_state["bio2"] = False await event.reply("✅ Bio dihapus.") async def getname_handler(event, client): if not await _ensure_owner_private(event, client): return if not event.is_reply: return await event.reply("❌ Reply text.") reply = await event.get_reply_message() me = await client.get_me() previous_name_state["first_name"], previous_name_state["last_name"] = me.first_name, me.last_name await client(UpdateProfileRequest(first_name=reply.message,last_name="")) await event.reply("✅ Nama diperbarui.") async def delname_handler(event, client): if not await _ensure_owner_private(event, client): return if previous_name_state["first_name"] is None: return await event.reply("❌ Belum pernah /getname.") await client(UpdateProfileRequest(first_name=previous_name_state["first_name"],last_name=previous_name_state["last_name"])) previous_name_state["first_name"]=None; previous_name_state["last_name"]=None used_state["name2"] = False await event.reply("✅ Nama dikembalikan.") async def getpp2_handler(event, client): if not await _ensure_owner_private(event, client): return if used_state["pp2"]: return await event.reply("❌ /getpp2 sudah pernah digunakan. Gunakan /delpp dulu.") if not event.is_reply: return await event.reply("❌ Reply pesan target.") reply = await event.get_reply_message() target_photos = await client.get_profile_photos(reply.sender_id, limit=100) if not target_photos: return await event.reply("❌ Target tidak punya foto/video.") target_photos = list(reversed(target_photos)) # hapus foto lama kita my_photos = await client.get_profile_photos('me', limit=100) if my_photos: await client(DeletePhotosRequest([InputPhoto(id=p.id,access_hash=p.access_hash,file_reference=p.file_reference) for p in my_photos])) # upload semua foto/video target for tp in target_photos: f = await client.download_media(tp) if f: uploaded = await client.upload_file(f) ext = os.path.splitext(f)[1].lower() if ext in [".mp4",".webm",".mkv",".mov"]: await client(UploadProfilePhotoRequest(video=uploaded, video_start_ts=0.0)) else: await client(UploadProfilePhotoRequest(file=uploaded)) os.remove(f) used_state["pp2"] = True await event.reply(f"✅ Semua foto/video target dijadikan profil (total {len(target_photos)}).") async def getbio2_handler(event, client): if not await _ensure_owner_private(event, client): return if used_state["bio2"]: return await event.reply("❌ /getbio2 sudah pernah digunakan. Gunakan /delbio dulu.") if not event.is_reply: return await event.reply("❌ Reply pesan target.") reply = await event.get_reply_message() full = await client(GetFullUserRequest(reply.sender_id)) await client(UpdateProfileRequest(about=full.full_user.about or "")) used_state["bio2"] = True await event.reply("✅ Bio target dijadikan bio.") async def getname2_handler(event, client): if not await _ensure_owner_private(event, client): return if used_state["name2"]: return await event.reply("❌ /getname2 sudah pernah digunakan. Gunakan /delname dulu.") if not event.is_reply: return await event.reply("❌ Reply pesan target.") reply = await event.get_reply_message() target = await client.get_entity(reply.sender_id) me = await client.get_me() previous_name_state["first_name"], previous_name_state["last_name"] = me.first_name, me.last_name fullname = f"{target.first_name or ''} {target.last_name or ''}".strip() await client(UpdateProfileRequest(first_name=fullname,last_name="")) used_state["name2"] = True await event.reply("✅ Nama target dijadikan nama.")
-
 # ========== BAGIAN 3 ==========
 # WEB SERVER, RESTART LOOP, MAIN + HANDLER
 
@@ -1421,44 +1415,6 @@ async def main():
             @client.on(events.NewMessage(pattern=r"^/revert$"))
             async def revert_cmd(event, c=client):
                 await revert_handler(event, c)
-
-        # === PROFILE MANAGEMENT ===
-        if "profile" in acc["features"]:
-            @client.on(events.NewMessage(pattern=r"^/getpp$"))
-            async def _getpp(event, c=client):
-                await getpp_handler(event, c)
-                
-            @client.on(events.NewMessage(pattern=r"^/delpp(?:\s+|$)(.*)"))
-            async def _delpp(event, c=client):
-                await delpp_handler(event, c)
-
-            @client.on(events.NewMessage(pattern=r"^/getbio$"))
-            async def _getbio(event, c=client):
-                await getbio_handler(event, c)
-
-            @client.on(events.NewMessage(pattern=r"^/delbio$"))
-            async def _delbio(event, c=client):
-                await delbio_handler(event, c)
-
-            @client.on(events.NewMessage(pattern=r"^/getname$"))
-            async def _getname(event, c=client):
-                await getname_handler(event, c)
-
-            @client.on(events.NewMessage(pattern=r"^/delname$"))
-            async def _delname(event, c=client):
-                await delname_handler(event, c)
-
-            @client.on(events.NewMessage(pattern=r"^/getpp2$"))
-            async def _getpp2(event, c=client):
-                await getpp2_handler(event, c)
-
-            @client.on(events.NewMessage(pattern=r"^/getbio2$"))
-            async def _getbio2(event, c=client):
-                await getbio2_handler(event, c)
-
-            @client.on(events.NewMessage(pattern=r"^/getname2$"))
-            async def _getname2(event, c=client):
-                await getname2_handler(event, c)
 
         # === INFO RESTART ===
         text = (
