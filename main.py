@@ -52,6 +52,7 @@ ACCOUNTS = [
             "downloader",
             "clone",
             "revert",
+            "profile",
 
         ]
     }
@@ -1149,6 +1150,9 @@ original_profile = {
 }
 is_cloned = False   # flag status clone aktif/tidak
 
+# Simpan nama lama khusus /getname untuk /delname
+previous_name_state = {"first_name": None, "last_name": None}
+
 # === FITUR: CLONE ===
 async def clone_handler(event, client):
     if not event.is_private:
@@ -1325,6 +1329,192 @@ async def revert_handler(event, client):
         await event.reply(f"⚠ Error revert: `{e}`")
 
 
+# === FITUR: PROFILE MANAGEMENT (getpp/delpp/getbio/delbio/getname/delname + versi target 2) ===
+
+async def _ensure_owner_private(event, client):
+    """Pastikan command dijalankan di private dan oleh pemilik akun."""
+    if not event.is_private:
+        return False
+    me = await client.get_me()
+    return event.sender_id == me.id
+
+# /getpp → reply foto/video jadi profil
+async def getpp_handler(event, client):
+    if not await _ensure_owner_private(event, client):
+        return
+    if not event.is_reply:
+        await event.reply("❌ Harus reply foto/video untuk dijadikan profil.")
+        return
+    reply = await event.get_reply_message()
+    if not reply or not reply.media:
+        await event.reply("❌ Reply harus berisi foto/video.")
+        return
+    try:
+        fpath = await reply.download_media()
+        if not fpath:
+            await event.reply("❌ Gagal mengunduh media.")
+            return
+        await _upload_profile_media(client, fpath)
+        try:
+            os.remove(fpath)
+        except:
+            pass
+        await event.reply("✅ Foto/video berhasil dijadikan profil.")
+    except Exception as e:
+        await event.reply(f"⚠ Error /getpp: `{e}`")
+
+# /delpp N → hapus foto profil urutan N (1-indexed)
+async def delpp_handler(event, client):
+    if not await _ensure_owner_private(event, client):
+        return
+    args = (event.pattern_match.group(2) or "").strip()
+    if not args or not args.isdigit():
+        await event.reply("❌ Gunakan angka, contoh: `/delpp 1`")
+        return
+    index = int(args) - 1
+    try:
+        photos = await client.get_profile_photos('me', limit=100)
+        if index < 0 or index >= len(photos):
+            await event.reply("❌ Index foto tidak valid.")
+            return
+        target = photos[index]
+        await client(DeletePhotosRequest([
+            InputPhoto(id=target.id, access_hash=target.access_hash, file_reference=target.file_reference)
+        ]))
+        await event.reply(f"✅ Foto profil ke-{index+1} berhasil dihapus.")
+    except Exception as e:
+        await event.reply(f"⚠ Error /delpp: `{e}`")
+
+# /getbio → reply text jadi bio
+async def getbio_handler(event, client):
+    if not await _ensure_owner_private(event, client):
+        return
+    if not event.is_reply:
+        await event.reply("❌ Harus reply text untuk dijadikan bio.")
+        return
+    reply = await event.get_reply_message()
+    text = (reply.message or "").strip()
+    if not text:
+        await event.reply("❌ Reply harus berisi text.")
+        return
+    try:
+        await client(UpdateProfileRequest(about=text))
+        await event.reply("✅ Bio berhasil diperbarui.")
+    except Exception as e:
+        await event.reply(f"⚠ Error /getbio: `{e}`")
+
+# /delbio → hapus bio
+async def delbio_handler(event, client):
+    if not await _ensure_owner_private(event, client):
+        return
+    try:
+        await client(UpdateProfileRequest(about=""))
+        await event.reply("✅ Bio berhasil dihapus.")
+    except Exception as e:
+        await event.reply(f"⚠ Error /delbio: `{e}`")
+
+# /getname → reply text jadi fullname (disimpan untuk /delname)
+async def getname_handler(event, client):
+    if not await _ensure_owner_private(event, client):
+        return
+    if not event.is_reply:
+        await event.reply("❌ Harus reply text untuk dijadikan nama.")
+        return
+    reply = await event.get_reply_message()
+    full = (reply.message or "").strip()
+    if not full:
+        await event.reply("❌ Reply harus berisi text.")
+        return
+    try:
+        me = await client.get_me()
+        previous_name_state["first_name"] = me.first_name or ""
+        previous_name_state["last_name"] = me.last_name or ""
+        # Pakai semuanya sebagai first_name (Telegram membolehkan nama depan panjang)
+        await client(UpdateProfileRequest(first_name=full, last_name=""))
+        await event.reply("✅ Nama berhasil diperbarui.")
+    except Exception as e:
+        await event.reply(f"⚠ Error /getname: `{e}`")
+
+# /delname → kembalikan ke nama sebelumnya (hanya kalau pernah /getname)
+async def delname_handler(event, client):
+    if not await _ensure_owner_private(event, client):
+        return
+    if previous_name_state["first_name"] is None and previous_name_state["last_name"] is None:
+        await event.reply("❌ Belum pernah menggunakan /getname.")
+        return
+    try:
+        await client(UpdateProfileRequest(
+            first_name=previous_name_state["first_name"],
+            last_name=previous_name_state["last_name"]
+        ))
+        previous_name_state["first_name"] = None
+        previous_name_state["last_name"] = None
+        await event.reply("✅ Nama berhasil dikembalikan.")
+    except Exception as e:
+        await event.reply(f"⚠ Error /delname: `{e}`")
+
+# /getpp2 → reply pesan target, ambil foto/video profil target jadi profil kita
+async def getpp2_handler(event, client):
+    if not await _ensure_owner_private(event, client):
+        return
+    if not event.is_reply:
+        await event.reply("❌ Harus reply pesan apa saja dari target.")
+        return
+    try:
+        reply = await event.get_reply_message()
+        photos = await client.get_profile_photos(reply.sender_id, limit=1)
+        if not photos:
+            await event.reply("❌ Target tidak punya foto/video profil.")
+            return
+        temp = await client.download_media(photos[0])
+        if not temp:
+            await event.reply("❌ Gagal mengunduh foto/video profil target.")
+            return
+        await _upload_profile_media(client, temp)
+        try:
+            os.remove(temp)
+        except:
+            pass
+        await event.reply("✅ Foto/video profil target berhasil dijadikan profil.")
+    except Exception as e:
+        await event.reply(f"⚠ Error /getpp2: `{e}`")
+
+# /getbio2 → reply pesan target, ambil bio target jadi bio kita
+async def getbio2_handler(event, client):
+    if not await _ensure_owner_private(event, client):
+        return
+    if not event.is_reply:
+        await event.reply("❌ Harus reply pesan apa saja dari target.")
+        return
+    try:
+        reply = await event.get_reply_message()
+        full = await client(GetFullUserRequest(reply.sender_id))
+        bio = full.full_user.about or ""
+        await client(UpdateProfileRequest(about=bio))
+        await event.reply("✅ Bio target berhasil dijadikan bio.")
+    except Exception as e:
+        await event.reply(f"⚠ Error /getbio2: `{e}`")
+
+# /getname2 → reply pesan target, ambil nama target jadi nama kita (disimpan untuk /delname)
+async def getname2_handler(event, client):
+    if not await _ensure_owner_private(event, client):
+        return
+    if not event.is_reply:
+        await event.reply("❌ Harus reply pesan apa saja dari target.")
+        return
+    try:
+        reply = await event.get_reply_message()
+        target = await client.get_entity(reply.sender_id)
+        me = await client.get_me()
+        previous_name_state["first_name"] = me.first_name or ""
+        previous_name_state["last_name"] = me.last_name or ""
+        target_full = f"{target.first_name or ''} {target.last_name or ''}".strip()
+        await client(UpdateProfileRequest(first_name=target_full, last_name=""))
+        await event.reply("✅ Nama target berhasil dijadikan nama.")
+    except Exception as e:
+        await event.reply(f"⚠ Error /getname2: `{e}`")
+
+
 # ========== BAGIAN 3 ==========
 # WEB SERVER, RESTART LOOP, MAIN + HANDLER
 
@@ -1415,6 +1605,44 @@ async def main():
             @client.on(events.NewMessage(pattern=r"^/revert$"))
             async def revert_cmd(event, c=client):
                 await revert_handler(event, c)
+
+        # === PROFILE MANAGEMENT ===
+        if "profile" in acc["features"]:
+            @client.on(events.NewMessage(pattern=r"^/getpp$"))
+            async def _getpp(event, c=client):
+                await getpp_handler(event, c)
+                
+            @client.on(events.NewMessage(pattern=r"^/delpp(?:\s+|$)(.*)"))
+            async def _delpp(event, c=client):
+                await delpp_handler(event, c)
+
+            @client.on(events.NewMessage(pattern=r"^/getbio$"))
+            async def _getbio(event, c=client):
+                await getbio_handler(event, c)
+
+            @client.on(events.NewMessage(pattern=r"^/delbio$"))
+            async def _delbio(event, c=client):
+                await delbio_handler(event, c)
+
+            @client.on(events.NewMessage(pattern=r"^/getname$"))
+            async def _getname(event, c=client):
+                await getname_handler(event, c)
+
+            @client.on(events.NewMessage(pattern=r"^/delname$"))
+            async def _delname(event, c=client):
+                await delname_handler(event, c)
+
+            @client.on(events.NewMessage(pattern=r"^/getpp2$"))
+            async def _getpp2(event, c=client):
+                await getpp2_handler(event, c)
+
+            @client.on(events.NewMessage(pattern=r"^/getbio2$"))
+            async def _getbio2(event, c=client):
+                await getbio2_handler(event, c)
+
+            @client.on(events.NewMessage(pattern=r"^/getname2$"))
+            async def _getname2(event, c=client):
+                await getname2_handler(event, c)
 
         # === INFO RESTART ===
         text = (
