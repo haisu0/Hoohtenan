@@ -1229,14 +1229,6 @@ async def _upload_profile_media(client, path):
         return await client(UploadProfilePhotoRequest(file=uploaded))
     else:
         return await client(UploadProfilePhotoRequest(file=uploaded))
-        
-async def _delete_all_profile_media(client):
-    current = await client.get_profile_photos('me', limit=100)
-    if current:
-        await client(DeletePhotosRequest([
-            InputPhoto(id=p.id, access_hash=p.access_hash, file_reference=p.file_reference)
-            for p in current
-        ]))
 
 # ===== Helpers: serialize & rebuild privacy rules =====
 
@@ -1280,11 +1272,11 @@ clone_states = {}  # key = client, value = dict profil asli + flag clone
 async def clone_handler(event, client):
     if not event.is_private:
         return
-  
+
     me = await client.get_me()
     if event.sender_id != me.id:
         return
-      
+    
     me = await client.get_me()
     if client in clone_states and clone_states[client].get("is_cloned"):
         await event.reply("❌ Clone sudah aktif. Gunakan /revert dulu sebelum clone lagi.")
@@ -1321,9 +1313,6 @@ async def clone_handler(event, client):
         last_name=target.last_name,
         about=full.full_user.about
     ))
-    
-    await _delete_all_profile_media(client)
-    
     t_photos = await client.get_profile_photos(target.id, limit=1)
     if t_photos:
         f = await client.download_media(t_photos[0])
@@ -1347,11 +1336,11 @@ async def clone_handler(event, client):
 async def revert_handler(event, client):
     if not event.is_private:
         return
-  
+
     me = await client.get_me()
     if event.sender_id != me.id:
         return
-      
+        
     state = clone_states.get(client)
     if not state or not state.get("is_cloned"):
         await event.reply("❌ Tidak ada data clone untuk akun ini."); return
@@ -1361,9 +1350,6 @@ async def revert_handler(event, client):
         last_name=state["last_name"],
         about=state["bio"] or ""
     ))
-    
-    await _delete_all_profile_media(client)
-    
     if state["photo"]:
         await _upload_profile_media(client, state["photo"])
     else:
@@ -1384,6 +1370,7 @@ async def revert_handler(event, client):
 
     state["is_cloned"] = False
     await event.reply("✅ Revert berhasil. Profil & privasi dikembalikan sesuai akun ini.")
+
 
 
 
