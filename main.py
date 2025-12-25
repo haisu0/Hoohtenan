@@ -1360,13 +1360,6 @@ async def revert_handler(event, client):
     state["is_cloned"] = False
     await event.reply("✅ Revert berhasil. Profil & privasi dikembalikan sesuai akun ini.")
 
-# ===== Event Binding =====
-@client.on(events.NewMessage(pattern=r"^/clone$"))
-async def _(event): await clone_handler(event, client)
-
-@client.on(events.NewMessage(pattern=r"^/revert$"))
-async def _(event): await revert_handler(event, client)
-
 
 
 
