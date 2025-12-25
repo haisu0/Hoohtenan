@@ -1189,7 +1189,6 @@ async def handle_downloader(event, client):
 
 
 
-
 # ===== Util: deteksi & normalisasi =====
 
 IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.webp'}
@@ -1290,17 +1289,20 @@ async def clone_handler(event, client):
         await event.reply("❌ Clone sudah aktif. Gunakan /revert dulu sebelum clone lagi.")
         return
 
-    # simpan profil asli
-    photos = await client.get_profile_photos(me.id, limit=1)
-    photo_file = None
-    if photos: photo_file = await client.download_media(photos[0])
+    # simpan semua media asli
+    my_photos = await client.get_profile_photos(me.id, limit=100)
+    my_media_files = []
+    for p in reversed(my_photos):  # reversed = urutan lama ke baru
+        f = await client.download_media(p)
+        my_media_files.append(f)
+
     privacy_photo = await client(GetPrivacyRequest(InputPrivacyKeyProfilePhoto()))
     privacy_about = await client(GetPrivacyRequest(InputPrivacyKeyAbout()))
     clone_states[client] = {
         "first_name": me.first_name,
         "last_name": me.last_name,
         "bio": (await client(GetFullUserRequest(me.id))).full_user.about,
-        "photo": photo_file,
+        "media": my_media_files,
         "privacy": {
             "photo": _serialize_privacy_rules(privacy_photo.rules),
             "about": _serialize_privacy_rules(privacy_about.rules)
@@ -1322,13 +1324,13 @@ async def clone_handler(event, client):
         about=full.full_user.about
     ))
 
-    # hapus semua media profil lama
+    # hapus semua media lama
     await _delete_all_profile_media(client)
 
-    # pasang media target
-    t_photos = await client.get_profile_photos(target.id, limit=1)
-    if t_photos:
-        f = await client.download_media(t_photos[0])
+    # pasang semua media target sesuai urutan
+    target_photos = await client.get_profile_photos(target.id, limit=100)
+    for p in reversed(target_photos):
+        f = await client.download_media(p)
         await _upload_profile_media(client, f)
 
     # privasi saat clone: hanya saya + pengecualian target
@@ -1343,7 +1345,7 @@ async def clone_handler(event, client):
     ))
 
     clone_states[client]["is_cloned"] = True
-    await event.reply("✅ Clone berhasil. Media lama dihapus, diganti media target.")
+    await event.reply("✅ Clone berhasil. Semua media lama dihapus, diganti media target sesuai urutan.")
 
 # ===== HANDLER REVERT =====
 async def revert_handler(event, client):
@@ -1353,43 +1355,34 @@ async def revert_handler(event, client):
     me = await client.get_me()
     if event.sender_id != me.id:
         return
-
+        
     state = clone_states.get(client)
     if not state or not state.get("is_cloned"):
-        await event.reply("❌ Tidak ada data clone untuk akun ini.")
-        return
+        await event.reply("❌ Tidak ada data clone untuk akun ini."); return
 
-    # kembalikan nama & bio
     await client(UpdateProfileRequest(
         first_name=state["first_name"],
         last_name=state["last_name"],
         about=state["bio"] or ""
     ))
 
-    # hapus semua media profil saat ini
+    # hapus semua media saat ini
     await _delete_all_profile_media(client)
 
-    # pasang kembali media lama
-    if state["photo"]:
-        await _upload_profile_media(client, state["photo"])
+    # pasang kembali semua media lama sesuai urutan
+    for f in state["media"]:
+        await _upload_profile_media(client, f)
 
-    # kembalikan privasi awal dengan rebuild rules
-    try:
-        if state["privacy"].get("photo") is not None:
-            restored_photo_rules = await _build_privacy_rules(client, state["privacy"]["photo"])
-            await client(SetPrivacyRequest(key=InputPrivacyKeyProfilePhoto(), rules=restored_photo_rules))
-        if state["privacy"].get("about") is not None:
-            restored_about_rules = await _build_privacy_rules(client, state["privacy"]["about"])
-            await client(SetPrivacyRequest(key=InputPrivacyKeyAbout(), rules=restored_about_rules))
-    except Exception as e:
-        # kalau ada error di privasi, tetap lanjut reset flag & kirim pesan
-        print("Error restore privacy:", e)
+    # kembalikan privasi awal
+    if state["privacy"].get("photo") is not None:
+        restored_photo_rules = await _build_privacy_rules(client, state["privacy"]["photo"])
+        await client(SetPrivacyRequest(key=InputPrivacyKeyProfilePhoto(), rules=restored_photo_rules))
+    if state["privacy"].get("about") is not None:
+        restored_about_rules = await _build_privacy_rules(client, state["privacy"]["about"])
+        await client(SetPrivacyRequest(key=InputPrivacyKeyAbout(), rules=restored_about_rules))
 
-    # reset flag
     state["is_cloned"] = False
-
-    # pastikan pesan sukses selalu dikirim
-    await event.reply("✅ Revert berhasil. Profil & privasi dikembalikan sesuai kondisi awal akun ini.")
+    await event.reply("✅ Revert berhasil. Semua media target dihapus, media lama dipasang kembali sesuai urutan.")
 
 
 
