@@ -77,7 +77,7 @@ ACCOUNTS = [
           "gg geming"
           ],
         "autopin_keywords": [
-          "pin ini",
+          "pin ini"
           ]
     }
 ]
@@ -1521,6 +1521,7 @@ async def main():
             lambda e: auto_forward_spam(e, client, acc.get("spam_triggers", [])),
             events.NewMessage()
             )
+            
         # === AUTO-PIN (KHUSUS PRIVATE) ===
         if "autopin" in acc["features"]:
           client.add_event_handler(
