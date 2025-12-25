@@ -58,7 +58,7 @@ ACCOUNTS = [
     {
         "session": "1BVtsOKgBu08fji82bgtjjXVoJnevBlqrJJD289YNV3P927dNAPbZAnZ9avLODcef1ACjSrO1pH6KfdTwch1ZhXHVRWLbknMEu3V6Rk9Hx7NuW5XemN6CtzDtfJzuCEaNs2a5bwMMH5bDbUQkMU725CoKJmKbGQlhw2qnYwA-w0XcubHJkynmtiThP8fFPE2SSibDmuQ2ePrb49elHU42uYoiBbW4EL8cL9RWFzdL7-RKqB4kLSYJswpgIcPVgGglijXe1M3UvCOZCqARhuH9xDNY9Lcwk5UekSB_0pHZJCGhXvSpdCnxewuaXZrNdsRo5VClkY0zXVvYhUk19CsO-b2j2vCkil8=",
         "log_channel": None,
-        "log_admin": 5107687003,
+        "log_admin": 7242160454,
         "features": [
             "anti_view_once",
             "ping",
