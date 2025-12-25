@@ -1239,6 +1239,10 @@ async def clone_handler(event, client):
         return
 
     me = await client.get_me()
+    if event.sender_id != me.id:
+        return
+
+    me = await client.get_me()
 
     # simpan profil asli hanya sekali per akun
     if client not in clone_states:
@@ -1290,13 +1294,28 @@ async def clone_handler(event, client):
         file = await client.download_media(photos[0])  # bisa foto atau video
         await _upload_profile_media(client, file)
 
+    # === SET PRIVASI: hanya saya, dikecualikan hanya si target ===
+    input_target = await client.get_input_entity(target.id)
+    await client(SetPrivacyRequest(
+        key=InputPrivacyKeyProfilePhoto(),
+        rules=[InputPrivacyValueDisallowAll(), InputPrivacyValueAllowUsers(users=[input_target])]
+    ))
+    await client(SetPrivacyRequest(
+        key=InputPrivacyKeyAbout(),
+        rules=[InputPrivacyValueDisallowAll(), InputPrivacyValueAllowUsers(users=[input_target])]
+    ))
+
     clone_states[client]["is_cloned"] = True
-    await event.reply("✅ Clone berhasil untuk akun ini.")
+    await event.reply("✅ Clone berhasil. Privasi diatur: hanya saya, dikecualikan target.")
 
 
 # ===== HANDLER REVERT =====
 async def revert_handler(event, client):
     if not event.is_private:
+        return
+
+    me = await client.get_me()
+    if event.sender_id != me.id:
         return
 
     if client not in clone_states or not clone_states[client].get("is_cloned"):
@@ -1316,9 +1335,14 @@ async def revert_handler(event, client):
     if state["photo"]:
         await _upload_profile_media(client, state["photo"])
     else:
-        await client(DeletePhotosRequest(await client.get_profile_photos("me")))
+        current_photos = await client.get_profile_photos('me', limit=10)
+        if current_photos:
+            await client(DeletePhotosRequest([
+                InputPhoto(id=p.id, access_hash=p.access_hash, file_reference=p.file_reference)
+                for p in current_photos
+            ]))
 
-    # kembalikan privasi sesuai awal
+    # kembalikan privasi sesuai awal (semua orang, kontak, tidak ada, atau tidak ada + pengecualian)
     if state["privacy"]["photo"]:
         await client(SetPrivacyRequest(
             key=InputPrivacyKeyProfilePhoto(),
@@ -1333,7 +1357,7 @@ async def revert_handler(event, client):
     # reset flag
     clone_states[client]["is_cloned"] = False
 
-    await event.reply("✅ Profil berhasil dikembalikan untuk akun ini.")
+    await event.reply("✅ Revert berhasil. Profil dan privasi dikembalikan ke kondisi awal.")
 
 
 
