@@ -1243,6 +1243,11 @@ async def clone_handler(event, client):
         return
 
     me = await client.get_me()
+    
+    # kalau sudah clone, jangan bisa clone lagi
+    if client in clone_states and clone_states[client].get("is_cloned"):
+        await event.reply("❌ Clone sudah aktif. Gunakan /revert dulu sebelum clone lagi.")
+        return
 
     # simpan profil asli hanya sekali per akun
     if client not in clone_states:
@@ -1318,20 +1323,21 @@ async def revert_handler(event, client):
     if event.sender_id != me.id:
         return
 
+    # cek apakah akun ini pernah clone
     if client not in clone_states or not clone_states[client].get("is_cloned"):
         await event.reply("❌ Tidak ada data clone untuk akun ini.")
         return
 
     state = clone_states[client]
 
-    # kembalikan nama & bio
+    # kembalikan nama & bio sesuai akun ini
     await client(UpdateProfileRequest(
         first_name=state["first_name"],
         last_name=state["last_name"],
         about=state["bio"]
     ))
 
-    # kembalikan foto/video profil
+    # kembalikan foto/video profil sesuai akun ini
     if state["photo"]:
         await _upload_profile_media(client, state["photo"])
     else:
@@ -1342,7 +1348,7 @@ async def revert_handler(event, client):
                 for p in current_photos
             ]))
 
-    # kembalikan privasi sesuai awal (semua orang, kontak, tidak ada, atau tidak ada + pengecualian)
+    # kembalikan privasi sesuai akun ini
     if state["privacy"]["photo"]:
         await client(SetPrivacyRequest(
             key=InputPrivacyKeyProfilePhoto(),
@@ -1354,10 +1360,10 @@ async def revert_handler(event, client):
             rules=state["privacy"]["about"].rules
         ))
 
-    # reset flag
+    # reset flag clone hanya untuk akun ini
     clone_states[client]["is_cloned"] = False
 
-    await event.reply("✅ Revert berhasil. Profil dan privasi dikembalikan ke kondisi awal.")
+    await event.reply("✅ Revert berhasil. Profil & privasi dikembalikan sesuai akun ini.")
 
 
 
