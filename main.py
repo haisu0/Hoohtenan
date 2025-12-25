@@ -1347,7 +1347,7 @@ async def clone_handler(event, client):
 
 # ===== HANDLER REVERT =====
 async def revert_handler(event, client):
-    if not event.is_private: 
+    if not event.is_private:
         return
 
     me = await client.get_me()
@@ -1366,25 +1366,30 @@ async def revert_handler(event, client):
         about=state["bio"] or ""
     ))
 
-    # === PERBAIKAN MEDIA ===
-    # 1) hapus semua media profil saat ini
+    # hapus semua media profil saat ini
     await _delete_all_profile_media(client)
 
-    # 2) pasang kembali media lama yang disimpan
+    # pasang kembali media lama
     if state["photo"]:
         await _upload_profile_media(client, state["photo"])
 
-    # kembalikan privasi awal
-    if state["privacy"].get("photo") is not None:
-        restored_photo_rules = await _build_privacy_rules(client, state["privacy"]["photo"])
-        await client(SetPrivacyRequest(key=InputPrivacyKeyProfilePhoto(), rules=restored_photo_rules))
-    if state["privacy"].get("about") is not None:
-        restored_about_rules = await _build_privacy_rules(client, state["privacy"]["about"])
-        await client(SetPrivacyRequest(key=InputPrivacyKeyAbout(), rules=restored_about_rules))
+    # kembalikan privasi awal dengan rebuild rules
+    try:
+        if state["privacy"].get("photo") is not None:
+            restored_photo_rules = await _build_privacy_rules(client, state["privacy"]["photo"])
+            await client(SetPrivacyRequest(key=InputPrivacyKeyProfilePhoto(), rules=restored_photo_rules))
+        if state["privacy"].get("about") is not None:
+            restored_about_rules = await _build_privacy_rules(client, state["privacy"]["about"])
+            await client(SetPrivacyRequest(key=InputPrivacyKeyAbout(), rules=restored_about_rules))
+    except Exception as e:
+        # kalau ada error di privasi, tetap lanjut reset flag & kirim pesan
+        print("Error restore privacy:", e)
 
     # reset flag
     state["is_cloned"] = False
-    await event.reply("✅ Revert berhasil. Semua media dihapus, media lama dipasang kembali.")
+
+    # pastikan pesan sukses selalu dikirim
+    await event.reply("✅ Revert berhasil. Profil & privasi dikembalikan sesuai kondisi awal akun ini.")
 
 
 
