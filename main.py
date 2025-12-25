@@ -1191,70 +1191,94 @@ async def handle_downloader(event, client):
 
 
 
-# ===== Util: deteksi & normalisasi =====
+import os, mimetypes
+from telethon import events
+from telethon.tl.functions.users import GetFullUserRequest
+from telethon.tl.functions.photos import UploadProfilePhotoRequest, DeletePhotosRequest
+from telethon.tl.functions.account import UpdateProfileRequest, GetPrivacyRequest, SetPrivacyRequest
+from telethon.tl.types import (
+    InputPrivacyKeyProfilePhoto, InputPrivacyKeyAbout,
+    InputPrivacyValueAllowAll, InputPrivacyValueAllowContacts,
+    InputPrivacyValueDisallowAll, InputPrivacyValueAllowUsers,
+    InputPrivacyValueDisallowUsers,
+    InputPhoto
+)
 
+# ===== Util: deteksi & normalisasi =====
 IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.webp'}
 VIDEO_EXTS = {'.mp4', '.webm', '.mkv', '.mov'}
 
 def _ensure_valid_extension(path):
-    # Pastikan ada ekstensi yang cocok; kalau tidak ada, tebak dari mimetype
     base, ext = os.path.splitext(path)
     if ext.lower() in IMAGE_EXTS | VIDEO_EXTS:
         return path
-
     guess = mimetypes.guess_type(path)[0]
     if guess:
         if 'image' in guess:
-            new_path = base + '.jpg'
-            os.rename(path, new_path)
-            return new_path
+            new_path = base + '.jpg'; os.rename(path, new_path); return new_path
         if 'video' in guess:
-            new_path = base + '.mp4'
-            os.rename(path, new_path)
-            return new_path
-
-    # Default ke .jpg kalau tidak bisa ditebak
-    new_path = base + '.jpg'
-    os.rename(path, new_path)
-    return new_path
+            new_path = base + '.mp4'; os.rename(path, new_path); return new_path
+    new_path = base + '.jpg'; os.rename(path, new_path); return new_path
 
 def _is_image(path):
     ext = os.path.splitext(path)[1].lower()
-    if ext in IMAGE_EXTS:
-        return True
+    if ext in IMAGE_EXTS: return True
     guess = mimetypes.guess_type(path)[0]
     return bool(guess and 'image' in guess)
 
 def _is_video(path):
     ext = os.path.splitext(path)[1].lower()
-    if ext in VIDEO_EXTS:
-        return True
+    if ext in VIDEO_EXTS: return True
     guess = mimetypes.guess_type(path)[0]
     return bool(guess and 'video' in guess)
 
 async def _upload_profile_media(client, path):
-    """
-    Upload sebuah media sebagai foto/video profil.
-    - Gambar → file=...
-    - Video  → video=... (Telegram akan menghasilkan thumbnail dari frame awal)
-    """
     valid_path = _ensure_valid_extension(path)
     fname = os.path.basename(valid_path)
-
     uploaded = await client.upload_file(valid_path, file_name=fname)
-
     if _is_video(valid_path):
-        # Video avatar (Telegram mendukung video profile). video_start_ts=0 untuk mulai dari awal.
         return await client(UploadProfilePhotoRequest(video=uploaded, video_start_ts=0.0))
     elif _is_image(valid_path):
         return await client(UploadProfilePhotoRequest(file=uploaded))
     else:
-        # Jika tipe tak dikenali, paksa sebagai gambar agar tidak error ekstensi
         return await client(UploadProfilePhotoRequest(file=uploaded))
 
+# ===== Helpers: serialize & rebuild privacy rules =====
+def _serialize_privacy_rules(rules):
+    out = []
+    for r in rules or []:
+        name = r.__class__.__name__
+        item = {"type": name}
+        if name in ("PrivacyValueAllowUsers","InputPrivacyValueAllowUsers",
+                    "PrivacyValueDisallowUsers","InputPrivacyValueDisallowUsers"):
+            user_ids = []
+            for u in getattr(r, "users", []) or []:
+                uid = getattr(u, "user_id", getattr(u, "id", None))
+                if uid is not None: user_ids.append(uid)
+            item["user_ids"] = user_ids
+        out.append(item)
+    return out
 
-# ===== State per akun (key = me.id) =====
-account_states = {}  # { user_id: { first_name, last_name, bio, photos, privacy_photo, privacy_bio, is_cloned } }
+async def _build_privacy_rules(client, serialized):
+    rules = []
+    for item in serialized or []:
+        t = item["type"]
+        if t in ("PrivacyValueAllowAll","InputPrivacyValueAllowAll"):
+            rules.append(InputPrivacyValueAllowAll())
+        elif t in ("PrivacyValueAllowContacts","InputPrivacyValueAllowContacts"):
+            rules.append(InputPrivacyValueAllowContacts())
+        elif t in ("PrivacyValueDisallowAll","InputPrivacyValueDisallowAll"):
+            rules.append(InputPrivacyValueDisallowAll())
+        elif t in ("PrivacyValueAllowUsers","InputPrivacyValueAllowUsers"):
+            users = [await client.get_input_entity(uid) for uid in item.get("user_ids",[])]
+            rules.append(InputPrivacyValueAllowUsers(users=users))
+        elif t in ("PrivacyValueDisallowUsers","InputPrivacyValueDisallowUsers"):
+            users = [await client.get_input_entity(uid) for uid in item.get("user_ids",[])]
+            rules.append(InputPrivacyValueDisallowUsers(users=users))
+    return rules
+
+# ===== State per akun =====
+account_states = {}  # key = user_id
 
 def _blank_state():
     return {
@@ -1271,51 +1295,45 @@ def _blank_state():
 async def clone_handler(event, client):
     if not event.is_private:
         return
-
     me = await client.get_me()
     if event.sender_id != me.id:
         return
 
-    # Ambil/siapkan state khusus akun ini
-    state = account_states.get(me.id)
-    if state is None:
-        state = _blank_state()
-        account_states[me.id] = state
+    state = account_states.get(me.id) or _blank_state()
+    account_states[me.id] = state
 
     if state["is_cloned"]:
-        await event.reply("❌ Tidak bisa clone lagi sebelum di-revert.")
-        return
-
+        await event.reply("❌ Tidak bisa clone lagi sebelum di-revert."); return
     if not event.is_reply:
-        await event.reply("❌ Harus reply pesan user yang mau di-clone.")
-        return
+        await event.reply("❌ Harus reply pesan user yang mau di-clone."); return
 
     try:
         reply = await event.get_reply_message()
         target_id = reply.sender_id
         input_target = await client.get_input_entity(target_id)
 
-        # Simpan profil asli (khusus akun ini)
+        # Simpan profil asli
         full_me = await client(GetFullUserRequest(me.id))
         state["first_name"] = me.first_name
         state["last_name"] = me.last_name
         state["bio"] = full_me.full_user.about
-        state["photos"] = []  # reset sebelum isi
-        state["privacy_photo"] = await client(GetPrivacyRequest(InputPrivacyKeyProfilePhoto()))
-        state["privacy_bio"] = await client(GetPrivacyRequest(InputPrivacyKeyAbout()))
+        state["photos"] = []
+        state["privacy_photo"] = _serialize_privacy_rules(
+            (await client(GetPrivacyRequest(InputPrivacyKeyProfilePhoto()))).rules
+        )
+        state["privacy_bio"] = _serialize_privacy_rules(
+            (await client(GetPrivacyRequest(InputPrivacyKeyAbout()))).rules
+        )
 
-        # Simpan foto lama (khusus akun ini)
+        # Simpan foto lama
         old_photos = await client.get_profile_photos('me', limit=10)
         for p in old_photos:
             f = await client.download_media(p)
-            if f:
-                state["photos"].append(f)
+            if f: state["photos"].append(f)
 
-        # Ambil data target
+        # Update nama & bio jadi target
         full_target = await client(GetFullUserRequest(target_id))
         target_user = full_target.users[0] if hasattr(full_target, "users") else full_target.user
-
-        # Update nama & bio
         await client(UpdateProfileRequest(
             first_name=target_user.first_name,
             last_name=target_user.last_name,
@@ -1329,10 +1347,9 @@ async def clone_handler(event, client):
                 for p in old_photos
             ]))
 
-        # Clone foto target (urutkan dari paling lama ke paling baru agar posisi sesuai)
+        # Clone foto target
         target_photos = await client.get_profile_photos(target_id, limit=10)
-        target_photos = list(reversed(target_photos))
-        for tp in target_photos:
+        for tp in reversed(target_photos):
             f = await client.download_media(tp)
             if f:
                 uploaded = await client.upload_file(f)
@@ -1355,28 +1372,24 @@ async def clone_handler(event, client):
     except Exception as e:
         await event.reply(f"⚠ Error clone: `{e}`")
 
-
 # === FITUR: REVERT ===
 async def revert_handler(event, client):
     if not event.is_private:
         return
-
     me = await client.get_me()
     if event.sender_id != me.id:
         return
 
-    # Ambil state khusus akun ini
     state = account_states.get(me.id)
     if not state or not state["is_cloned"]:
-        await event.reply("❌ Tidak ada clone aktif. Gunakan clone dulu.")
-        return
+        await event.reply("❌ Tidak ada clone aktif. Gunakan clone dulu."); return
 
     try:
         # Kembalikan nama & bio
         await client(UpdateProfileRequest(
             first_name=state["first_name"],
             last_name=state["last_name"],
-            about=state["bio"] if state["bio"] else ""
+            about=state["bio"] or ""
         ))
 
         # Hapus foto hasil clone
@@ -1387,32 +1400,27 @@ async def revert_handler(event, client):
                 for p in current_photos
             ]))
 
-        # Upload kembali foto lama (urutkan agar posisi sesuai)
+        # Upload kembali foto lama
         for f in state["photos"]:
             uploaded = await client.upload_file(f)
             await client(UploadProfilePhotoRequest(file=uploaded))
             os.remove(f)
 
-        # Revert privasi
+        # Revert privasi ke aturan awal
         if state["privacy_photo"]:
-            await client(SetPrivacyRequest(
-                key=InputPrivacyKeyProfilePhoto(),
-                rules=state["privacy_photo"].rules
-            ))
+            restored_photo_rules = await _build_privacy_rules(client, state["privacy_photo"])
+            await client(SetPrivacyRequest(key=InputPrivacyKeyProfilePhoto(), rules=restored_photo_rules))
         if state["privacy_bio"]:
-            await client(SetPrivacyRequest(
-                key=InputPrivacyKeyAbout(),
-                rules=state["privacy_bio"].rules
-            ))
+            restored_bio_rules = await _build_privacy_rules(client, state["privacy_bio"])
+            await client(SetPrivacyRequest(key=InputPrivacyKeyAbout(), rules=restored_bio_rules))
 
-        # Reset hanya untuk akun ini
+        # Reset state akun ini
         account_states[me.id] = _blank_state()
 
-        await event.reply("✅ Revert berhasil. Clone bisa digunakan lagi, revert tidak bisa sebelum clone.")
-
+        # Kirim pesan sukses
+        await event.reply("✅ Revert berhasil. Profil, media, dan privasi kembali seperti awal. Clone bisa digunakan lagi.")
     except Exception as e:
         await event.reply(f"⚠ Error revert: `{e}`")
-
 
 
 
