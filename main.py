@@ -1271,8 +1271,15 @@ clone_states = {}  # key = client, value = dict profil asli + flag clone
 
 # ===== HANDLER CLONE =====
 async def clone_handler(event, client):
-    if not event.is_private: return
+    if not event.is_private:
+        return
+
     me = await client.get_me()
+    if event.sender_id != me.id:
+        return
+        
+    me = await client.get_me()
+    
     if client in clone_states and clone_states[client].get("is_cloned"):
         await event.reply("❌ Clone sudah aktif. Gunakan /revert dulu sebelum clone lagi.")
         return
@@ -1329,7 +1336,13 @@ async def clone_handler(event, client):
 
 # ===== HANDLER REVERT =====
 async def revert_handler(event, client):
-    if not event.is_private: return
+    if not event.is_private:
+        return
+
+    me = await client.get_me()
+    if event.sender_id != me.id:
+        return
+        
     state = clone_states.get(client)
     if not state or not state.get("is_cloned"):
         await event.reply("❌ Tidak ada data clone untuk akun ini."); return
