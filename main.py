@@ -1347,27 +1347,30 @@ async def clone_handler(event, client):
 
 # ===== HANDLER REVERT =====
 async def revert_handler(event, client):
-    if not event.is_private:
+    if not event.is_private: 
         return
 
     me = await client.get_me()
     if event.sender_id != me.id:
         return
-        
+
     state = clone_states.get(client)
     if not state or not state.get("is_cloned"):
-        await event.reply("❌ Tidak ada data clone untuk akun ini."); return
+        await event.reply("❌ Tidak ada data clone untuk akun ini.")
+        return
 
+    # kembalikan nama & bio
     await client(UpdateProfileRequest(
         first_name=state["first_name"],
         last_name=state["last_name"],
         about=state["bio"] or ""
     ))
 
-    # hapus semua media profil saat ini
+    # === PERBAIKAN MEDIA ===
+    # 1) hapus semua media profil saat ini
     await _delete_all_profile_media(client)
 
-    # pasang kembali media lama
+    # 2) pasang kembali media lama yang disimpan
     if state["photo"]:
         await _upload_profile_media(client, state["photo"])
 
@@ -1379,8 +1382,9 @@ async def revert_handler(event, client):
         restored_about_rules = await _build_privacy_rules(client, state["privacy"]["about"])
         await client(SetPrivacyRequest(key=InputPrivacyKeyAbout(), rules=restored_about_rules))
 
+    # reset flag
     state["is_cloned"] = False
-    await event.reply("✅ Revert berhasil. Media target dihapus, media lama dipasang kembali.")
+    await event.reply("✅ Revert berhasil. Semua media dihapus, media lama dipasang kembali.")
 
 
 
