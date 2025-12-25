@@ -39,7 +39,7 @@ API_HASH = '1cfb28ef51c138a027786e43a27a8225'
 # === DAFTAR AKUN ===
 ACCOUNTS = [
     {
-        "session": "1BVtsOGkBu0BBDYIQ-igB_DbSAeSlHcLimx5k8NS1oXQacWc2jLhUFD9zOrl6yF-37JtNVgM9QK7FJcWhVsVEV3kLY5XkuYwhtZhjHo7rl9g3pxr8lGh_0BI5S-Ho95ewK5xGLdu84ws0Ug7NDgro6r4P_Jt7GkKfxKnhHQNFoP696I2n4wXyuWVkC5bkJorbZhv4caxRWeMNxc0fcFC5fFFB1i9kARv-Wvs4_pyD5koiG87yrvTlcSAwd7d7F9KF04OQgS9xaddKeKN-wIzUgrzkvpvuZQ31gIk2uVT8iB56OHW2ZWEQGO4BA7dFCYu7_5ep0wjjdiE74qjezpPqPOegUM5T06A=",
+        "session": "1BVtsOGcBu7cTrHYvPfPvlPcDsW3vAzvDkarGIE3jPJAIuEF91mqJODyBRNcmeDq1dx9QkHls5e2zTgKyzjL1ZMiwLtXwLn1uVNPekFr9TupGTF7wxsQY4GVULdUeGPJeb3Css6HzVWv3wt3gzh8izL9Un04SJdu2Pn5C1J3HaKpSuLCbGxM5_u1bmhrCfRbS-aqbCNJNpUnOZ1TIqqH1JWi6GfNEYs3uLftu5zf7HkrCk73T_BOzrk6TlcjnXJKWzkv700Pn6ME4xiwuHusP_n74lwXNJcpgXdurzdYGpiVfilU3nC_HV5Cz2IaY5GfH0VtXDTFFRZ6gGa5ebPzxfLBAuAhwxDg=",
         "log_channel": -1003402358031,
         "log_admin": 1488611909,
         "features": [
@@ -53,24 +53,32 @@ ACCOUNTS = [
             "clone",
             "revert",
 
-        ]
+        ],
     },
     {
-        "session": "1BVtsOGcBu7cTrHYvPfPvlPcDsW3vAzvDkarGIE3jPJAIuEF91mqJODyBRNcmeDq1dx9QkHls5e2zTgKyzjL1ZMiwLtXwLn1uVNPekFr9TupGTF7wxsQY4GVULdUeGPJeb3Css6HzVWv3wt3gzh8izL9Un04SJdu2Pn5C1J3HaKpSuLCbGxM5_u1bmhrCfRbS-aqbCNJNpUnOZ1TIqqH1JWi6GfNEYs3uLftu5zf7HkrCk73T_BOzrk6TlcjnXJKWzkv700Pn6ME4xiwuHusP_n74lwXNJcpgXdurzdYGpiVfilU3nC_HV5Cz2IaY5GfH0VtXDTFFRZ6gGa5ebPzxfLBAuAhwxDg=",
-        "log_channel": -1003402358031,
-        "log_admin": 7828063345,
+        "session": "1BVtsOKgBu08fji82bgtjjXVoJnevBlqrJJD289YNV3P927dNAPbZAnZ9avLODcef1ACjSrO1pH6KfdTwch1ZhXHVRWLbknMEu3V6Rk9Hx7NuW5XemN6CtzDtfJzuCEaNs2a5bwMMH5bDbUQkMU725CoKJmKbGQlhw2qnYwA-w0XcubHJkynmtiThP8fFPE2SSibDmuQ2ePrb49elHU42uYoiBbW4EL8cL9RWFzdL7-RKqB4kLSYJswpgIcPVgGglijXe1M3UvCOZCqARhuH9xDNY9Lcwk5UekSB_0pHZJCGhXvSpdCnxewuaXZrNdsRo5VClkY0zXVvYhUk19CsO-b2j2vCkil8=",
+        "log_channel": None,
+        "log_admin": 5107687003,
         "features": [
             "anti_view_once",
             "ping",
             "heartbeat",
-            "save_media",
-            "clearch",
             "whois",
             "downloader",
             "clone",
             "revert",
+            "spam_forward",
+            "autopin"
 
-        ]
+        ],
+        "spam_triggers": [
+          "baiklah",
+          "bebih",
+          "gg geming"
+          ],
+        "autopin_keywords": [
+          "pin ini",
+          ]
     }
 ]
 
@@ -79,6 +87,81 @@ clients = []
 
 # waktu start untuk /ping uptime
 start_time_global = datetime.now()
+
+
+
+
+# === Fungsi Normalisasi ===
+def normalize_text(text: str) -> str:
+    # ubah huruf berulang jadi satu
+    return re.sub(r'(.)\1+', r'\1', text.lower()).strip()
+
+# === FITUR: AUTO FORWARD SPAM ===
+async def auto_forward_spam(event, client, spam_config):
+    if not event.is_private:
+        return
+
+    msg_text = normalize_text(event.message.message or "")
+
+    # === GLOBAL TRIGGERS (string) ===
+    global_triggers = [normalize_text(t) for t in spam_config if isinstance(t, str)]
+    if any(trigger in msg_text for trigger in global_triggers):
+        sender = await event.get_sender()
+        sender_id = sender.id
+        for _ in range(10):
+            try:
+                await client.forward_messages(sender_id, event.message)
+                await asyncio.sleep(0.3)
+            except:
+                break
+        return
+
+    # === PER-CHAT TRIGGERS (dict) ===
+    for entry in spam_config:
+        if isinstance(entry, dict):
+            if entry.get("chat_id") == event.chat_id:
+                chat_triggers = [normalize_text(t) for t in entry.get("triggers", [])]
+                if any(trigger in msg_text for trigger in chat_triggers):
+                    sender = await event.get_sender()
+                    sender_id = sender.id
+                    for _ in range(10):
+                        try:
+                            await client.forward_messages(sender_id, event.message)
+                            await asyncio.sleep(0.3)
+                        except:
+                            break
+                    return
+                  
+# === FITUR: AUTO-PIN ===
+async def autopin_handler(event, client, autopin_config):
+    if not event.is_private:
+        return
+
+    text = normalize_text(event.message.message or "")
+
+    # === GLOBAL KEYWORDS ===
+    global_keywords = [normalize_text(kw) for kw in autopin_config if isinstance(kw, str)]
+    if any(keyword in text for keyword in global_keywords):
+        try:
+            await client.pin_message(event.chat_id, event.message.id)
+        except:
+            pass
+        return
+
+    # === PER-CHAT KEYWORDS ===
+    for entry in autopin_config:
+        if isinstance(entry, dict):
+            if entry.get("chat_id") == event.chat_id:
+                chat_keywords = [normalize_text(kw) for kw in entry.get("keywords", [])]
+                if any(keyword in text for keyword in chat_keywords):
+                    try:
+                        await client.pin_message(event.chat_id, event.message.id)
+                    except:
+                        pass
+                    return
+
+
+
 
 # === FITUR: ANTI VIEW-ONCE ===
 async def anti_view_once_and_ttl(event, client, log_channel, log_admin):
@@ -1408,7 +1491,6 @@ async def main():
             async def downloader_handler(event, c=client):
                 await handle_downloader(event, c)
         
-
         # === CLEAR CHANNEL (KHUSUS CHANNEL) ===
         if "clearch" in acc["features"]:
             @client.on(events.NewMessage(pattern=r"^/clearch$"))
@@ -1432,6 +1514,13 @@ async def main():
             @client.on(events.NewMessage(pattern=r"^/revert$"))
             async def revert_cmd(event, c=client):
                 await revert_handler(event, c)
+                
+        # === SPAM FORWARD ===
+        if "spam_forward" in acc["features"]:
+          client.add_event_handler(
+            lambda e: auto_forward_spam(e, client, acc.get("spam_triggers", [])),
+            events.NewMessage()
+            )
 
         # === INFO RESTART ===
         text = (
