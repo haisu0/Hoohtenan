@@ -1230,9 +1230,10 @@ async def _upload_profile_media(client, path):
 
 
 # ===== State per akun =====
-# key = client, value = dict profil asli + flag clone
-clone_states = {}
+clone_states = {}  # key = client, value = dict profil asli + flag clone
 
+
+# ===== HANDLER CLONE =====
 async def clone_handler(event, client):
     if not event.is_private:
         return
@@ -1244,7 +1245,7 @@ async def clone_handler(event, client):
         photos = await client.get_profile_photos(me.id, limit=1)
         photo_file = None
         if photos:
-            photo_file = await client.download_media(photos[0])
+            photo_file = await client.download_media(photos[0])  # bisa foto atau video
 
         privacy_photo = await client(GetPrivacyRequest(InputPrivacyKeyProfilePhoto()))
         privacy_about = await client(GetPrivacyRequest(InputPrivacyKeyAbout()))
@@ -1258,7 +1259,7 @@ async def clone_handler(event, client):
                 "photo": privacy_photo,
                 "about": privacy_about
             },
-            "is_cloned": True
+            "is_cloned": False
         }
 
     # harus reply ke target user
@@ -1268,6 +1269,12 @@ async def clone_handler(event, client):
 
     reply = await event.get_reply_message()
     target = await client.get_entity(reply.sender_id)
+
+    # === CEK: jangan clone diri sendiri ===
+    if target.id == me.id:
+        await event.reply("❌ Tidak bisa clone diri sendiri.")
+        return
+
     full = await client(GetFullUserRequest(target.id))
 
     # update profil sesuai target
@@ -1277,14 +1284,17 @@ async def clone_handler(event, client):
         about=full.full_user.about
     ))
 
-    # update foto profil
+    # update foto/video profil
     photos = await client.get_profile_photos(target.id, limit=1)
     if photos:
-        file = await client.download_media(photos[0])
+        file = await client.download_media(photos[0])  # bisa foto atau video
         await _upload_profile_media(client, file)
 
+    clone_states[client]["is_cloned"] = True
     await event.reply("✅ Clone berhasil untuk akun ini.")
 
+
+# ===== HANDLER REVERT =====
 async def revert_handler(event, client):
     if not event.is_private:
         return
@@ -1302,7 +1312,7 @@ async def revert_handler(event, client):
         about=state["bio"]
     ))
 
-    # kembalikan foto
+    # kembalikan foto/video profil
     if state["photo"]:
         await _upload_profile_media(client, state["photo"])
     else:
